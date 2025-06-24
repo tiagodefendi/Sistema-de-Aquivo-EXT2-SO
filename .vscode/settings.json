@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "ext2_utils.h": "c",
+        "rm.h": "c"
+    }
+}

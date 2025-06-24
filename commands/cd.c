@@ -61,13 +61,13 @@ int cmd_cd(const char *dirname)
             }
             else
             {
-                printf("[%s] não é um diretório.\n", dirname);
+                printf("<%s> não é um diretório.\n", dirname);
                 return -1;
             }
         }
         offset += entry->rec_len;
     }
 
-    printf("[%s]: diretório não encontrado.\n", dirname);
+    printf("<%s>: diretório não encontrado.\n", dirname);
     return -1;
 }

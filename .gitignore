@@ -1,4 +1,5 @@
 *.zip
+*.tar.*
 *.img
 *.o
 ext2shell

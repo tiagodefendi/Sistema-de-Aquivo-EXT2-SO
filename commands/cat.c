@@ -18,61 +18,115 @@
  */
 static int dump_file(ext2_fs_t *fs, struct ext2_inode *inode)
 {
-    uint32_t file_size = inode->i_size;
-    uint32_t bytes_left = file_size;
-    uint8_t block_buf[EXT2_BLOCK_SIZE];
+    uint32_t bytes_left = inode->i_size;
+    int result = 0;
 
-    // Ler blocos diretos
-    for (int i = 0; i < 12 && bytes_left > 0; ++i)
+    // Blocos diretos (0-11)
+    for (int i = 0; i < 12 && bytes_left; ++i)
     {
-        uint32_t block_num = inode->i_block[i];
-        if (block_num == 0)
-            break;
-
-        if (fs_read_block(fs, block_num, block_buf) < 0)
-            return -1;
-
-        uint32_t bytes_to_write = bytes_left < EXT2_BLOCK_SIZE ? bytes_left : EXT2_BLOCK_SIZE;
-        if (fwrite(block_buf, 1, bytes_to_write, stdout) != bytes_to_write)
-            return -1;
-
-        bytes_left -= bytes_to_write;
-    }
-
-    // Ler bloco indireto simples (se necessário)
-    if (bytes_left > 0)
-    {
-        uint32_t indirect_block = inode->i_block[12];
-        if (indirect_block == 0)
-        {
-            errno = EIO;
-            return -1;
-        }
-
-        if (fs_read_block(fs, indirect_block, block_buf) < 0)
-            return -1;
-
-        uint32_t *indirect_entries = (uint32_t *)block_buf;
-        uint32_t entries_per_block = EXT2_BLOCK_SIZE / sizeof(uint32_t);
-
-        for (uint32_t i = 0; i < entries_per_block && bytes_left > 0; ++i)
-        {
-            uint32_t block_num = indirect_entries[i];
-            if (block_num == 0)
+        uint8_t buf[EXT2_BLOCK_SIZE];
+        uint32_t blk = inode->i_block[i];
+        uint32_t n = (bytes_left >= EXT2_BLOCK_SIZE) ? EXT2_BLOCK_SIZE : bytes_left;
+        if (blk != 0) {
+            if (fs_read_block(fs, blk, buf) < 0) {
+                result = -1;
                 break;
+            }
+            if (fwrite(buf, 1, n, stdout) != n) {
+                result = -1;
+                break;
+            }
+        } else {
+            uint8_t zero[EXT2_BLOCK_SIZE] = {0};
+            if (fwrite(zero, 1, n, stdout) != n) {
+                result = -1;
+                break;
+            }
+        }
+        bytes_left -= n;
+    }
 
-            if (fs_read_block(fs, block_num, block_buf) < 0)
-                return -1;
-
-            uint32_t bytes_to_write = bytes_left < EXT2_BLOCK_SIZE ? bytes_left : EXT2_BLOCK_SIZE;
-            if (fwrite(block_buf, 1, bytes_to_write, stdout) != bytes_to_write)
-                return -1;
-
-            bytes_left -= bytes_to_write;
+    // Bloco indireto simples (12)
+    if (result == 0 && bytes_left)
+    {
+        uint8_t buf[EXT2_BLOCK_SIZE] = {0};
+        if (inode->i_block[12]) {
+            if (fs_read_block(fs, inode->i_block[12], buf) < 0)
+                result = -1;
+        }
+        uint32_t *tbl = (uint32_t *)buf;
+        for (uint32_t j = 0; j < 256 && bytes_left && result == 0; ++j)
+        {
+            uint32_t n = (bytes_left >= EXT2_BLOCK_SIZE) ? EXT2_BLOCK_SIZE : bytes_left;
+            uint32_t blk = inode->i_block[12] ? tbl[j] : 0;
+            if (blk != 0) {
+                uint8_t data[EXT2_BLOCK_SIZE];
+                if (fs_read_block(fs, blk, data) < 0) {
+                    result = -1;
+                    break;
+                }
+                if (fwrite(data, 1, n, stdout) != n) {
+                    result = -1;
+                    break;
+                }
+            } else {
+                uint8_t zero[EXT2_BLOCK_SIZE] = {0};
+                if (fwrite(zero, 1, n, stdout) != n) {
+                    result = -1;
+                    break;
+                }
+            }
+            bytes_left -= n;
         }
     }
 
-    return 0;
+    // Bloco indireto duplo (13)
+    if (result == 0 && bytes_left)
+    {
+        if (!inode->i_block[13]) {
+            errno = EIO;
+            result = -1;
+        } else {
+            uint8_t buf1[EXT2_BLOCK_SIZE], buf2[EXT2_BLOCK_SIZE];
+            if (fs_read_block(fs, inode->i_block[13], buf1) < 0) {
+                result = -1;
+            } else {
+                uint32_t *lvl1 = (uint32_t *)buf1;
+                for (uint32_t i1 = 0; i1 < 256 && bytes_left && result == 0; ++i1) {
+                    uint32_t l2blk = lvl1[i1];
+                    if (l2blk && fs_read_block(fs, l2blk, buf2) < 0) {
+                        result = -1;
+                        break;
+                    }
+                    uint32_t *lvl2 = (uint32_t *)buf2;
+                    for (uint32_t i2 = 0; i2 < 256 && bytes_left && result == 0; ++i2) {
+                        uint32_t blk = l2blk ? lvl2[i2] : 0;
+                        uint32_t n = (bytes_left >= EXT2_BLOCK_SIZE) ? EXT2_BLOCK_SIZE : bytes_left;
+                        if (blk != 0) {
+                            uint8_t data[EXT2_BLOCK_SIZE];
+                            if (fs_read_block(fs, blk, data) < 0) {
+                                result = -1;
+                                break;
+                            }
+                            if (fwrite(data, 1, n, stdout) != n) {
+                                result = -1;
+                                break;
+                            }
+                        } else {
+                            uint8_t zero[EXT2_BLOCK_SIZE] = {0};
+                            if (fwrite(zero, 1, n, stdout) != n) {
+                                result = -1;
+                                break;
+                            }
+                        }
+                        bytes_left -= n;
+                    }
+                }
+            }
+        }
+    }
+
+    return result;
 }
 
 /**

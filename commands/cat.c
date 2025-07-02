@@ -1,144 +1,135 @@
-/*
- * cat.c — comando "cat <filename>"
- *         Exibe conteúdo de um arquivo texto no cwd (por ora somente "/").
- *
- * Limitações aceitas:
- *   • Diretório corrente deve caber em 1 bloco.
- *   • Só trata ponteiros diretos (12) e indireto simples (1).
- *   • Arquivos limitados a ≈ 268 blocos (≈ 268 KiB).
- */
-
 #include <stdio.h>
-#include <stdint.h>
-#include <string.h>
 #include <stdlib.h>
-#include "ext2.h"
-#include "utils.h"
+#include <string.h>
+#include <errno.h>
+#include <unistd.h>
+#include "commands.h"
 
-#define ROOT_INO 2
-#define PTRS_PER_BLOCK (EXT2_BLOCK_SIZE / sizeof(uint32_t))
-
-/* procura por <name> no inode de diretório, devolve nº inode ou 0 */
-static uint32_t lookup_file(FILE *img, const struct ext2_super_block *sb,
-                            const struct ext2_group_desc *gd,
-                            const struct ext2_inode *dir_ino,
-                            const char *name)
+/**
+ * @brief   Despeja o conteúdo de um arquivo regular para a saída padrão.
+ *
+ * Esta função lê os blocos de dados do inode do arquivo e escreve seu conteúdo na saída padrão.
+ * Suporta blocos diretos e um bloco indireto.
+ *
+ * @param fs     Ponteiro para a estrutura do sistema de arquivos EXT2.
+ * @param inode  Ponteiro para o inode do arquivo a ser lido.
+ *
+ * @return Retorna 0 em caso de sucesso, ou -1 em caso de erro (por exemplo, se ocorrer falha na leitura).
+ */
+static int dump_file(ext2_fs_t *fs, struct ext2_inode *inode)
 {
-    uint8_t buf[EXT2_BLOCK_SIZE];
-    if (read_block(img, dir_ino->i_block[0], buf) != 0)
-        return 0;
+    uint32_t file_size = inode->i_size;
+    uint32_t bytes_left = file_size;
+    uint8_t block_buf[EXT2_BLOCK_SIZE];
 
-    uint32_t off = 0;
-    while (off < dir_ino->i_size)
+    // Ler blocos diretos
+    for (int i = 0; i < 12 && bytes_left > 0; ++i)
     {
-        struct ext2_dir_entry *de = (struct ext2_dir_entry *)(buf + off);
-        if (de->inode && de->file_type == EXT2_FT_REG_FILE &&
-            de->name_len == strlen(name) &&
-            strncmp(de->name, name, de->name_len) == 0)
-            return de->inode;
-        if (de->rec_len == 0)
+        uint32_t block_num = inode->i_block[i];
+        if (block_num == 0)
             break;
-        off += de->rec_len;
-    }
-    return 0;
-}
 
-/* lê e despeja nbytes a partir de um bloco apontado */
-static int dump_block(FILE *img, uint32_t block_no, uint32_t nbytes)
-{
-    uint8_t buf[EXT2_BLOCK_SIZE];
-    if (read_block(img, block_no, buf) != 0)
-        return -1;
-    fwrite(buf, 1, nbytes, stdout);
-    return 0;
-}
-
-int cmd_cat(FILE *img, const char *cwd, const char *filename)
-{
-    if (!filename)
-    {
-        fprintf(stderr, "cat: missing filename.\n");
-        return -1;
-    }
-    if (strcmp(cwd, "/") != 0)
-    {
-        fprintf(stderr, "cat: navegação além da raiz não implementada.\n");
-        return -1;
-    }
-
-    struct ext2_super_block sb;
-    struct ext2_group_desc gd;
-    struct ext2_inode dir_ino;
-
-    if (read_superblock(img, &sb) != 0)
-        return -1;
-    if (read_group_desc(img, &sb, &gd) != 0)
-        return -1;
-    if (read_inode(img, &sb, &gd, ROOT_INO, &dir_ino) != 0)
-        return -1;
-
-    uint32_t file_ino_no = lookup_file(img, &sb, &gd, &dir_ino, filename);
-    if (file_ino_no == 0)
-    {
-        fprintf(stderr, "cat: file not found: %s\n", filename);
-        return -1;
-    }
-
-    struct ext2_inode file_ino;
-    if (read_inode(img, &sb, &gd, file_ino_no, &file_ino) != 0)
-    {
-        fprintf(stderr, "cat: unable to read inode.\n");
-        return -1;
-    }
-    if ((file_ino.i_mode & 0xF000) != EXT2_S_IFREG)
-    {
-        fprintf(stderr, "cat: not a regular file.\n");
-        return -1;
-    }
-
-    uint32_t remaining = file_ino.i_size;
-
-    /* ---- blocos diretos ---- */
-    for (int i = 0; i < 12 && remaining; ++i)
-    {
-        uint32_t to_read = remaining > EXT2_BLOCK_SIZE ? EXT2_BLOCK_SIZE : remaining;
-        if (dump_block(img, file_ino.i_block[i], to_read) != 0)
+        if (fs_read_block(fs, block_num, block_buf) < 0)
             return -1;
-        remaining -= to_read;
+
+        uint32_t bytes_to_write = bytes_left < EXT2_BLOCK_SIZE ? bytes_left : EXT2_BLOCK_SIZE;
+        if (fwrite(block_buf, 1, bytes_to_write, stdout) != bytes_to_write)
+            return -1;
+
+        bytes_left -= bytes_to_write;
     }
 
-    /* ---- indireto simples ---- */
-    if (remaining)
+    // Ler bloco indireto simples (se necessário)
+    if (bytes_left > 0)
     {
-        uint32_t *ptrs = (uint32_t *)malloc(EXT2_BLOCK_SIZE);
-        if (!ptrs)
-            return -1;
-        if (read_block(img, file_ino.i_block[12], ptrs) != 0)
+        uint32_t indirect_block = inode->i_block[12];
+        if (indirect_block == 0)
         {
-            free(ptrs);
+            errno = EIO;
             return -1;
         }
-        for (uint32_t i = 0; i < PTRS_PER_BLOCK && remaining; ++i)
+
+        if (fs_read_block(fs, indirect_block, block_buf) < 0)
+            return -1;
+
+        uint32_t *indirect_entries = (uint32_t *)block_buf;
+        uint32_t entries_per_block = EXT2_BLOCK_SIZE / sizeof(uint32_t);
+
+        for (uint32_t i = 0; i < entries_per_block && bytes_left > 0; ++i)
         {
-            if (ptrs[i] == 0)
+            uint32_t block_num = indirect_entries[i];
+            if (block_num == 0)
                 break;
-            uint32_t to_read = remaining > EXT2_BLOCK_SIZE ? EXT2_BLOCK_SIZE : remaining;
-            if (dump_block(img, ptrs[i], to_read) != 0)
-            {
-                free(ptrs);
-                return -1;
-            }
-            remaining -= to_read;
-        }
-        free(ptrs);
-    }
 
-    /* Arquivos maiores que cobertura acima não são suportados */
-    if (remaining)
-    {
-        fprintf(stderr, "cat: arquivo excede limite suportado.\n");
-        return -1;
+            if (fs_read_block(fs, block_num, block_buf) < 0)
+                return -1;
+
+            uint32_t bytes_to_write = bytes_left < EXT2_BLOCK_SIZE ? bytes_left : EXT2_BLOCK_SIZE;
+            if (fwrite(block_buf, 1, bytes_to_write, stdout) != bytes_to_write)
+                return -1;
+
+            bytes_left -= bytes_to_write;
+        }
     }
 
     return 0;
+}
+
+/**
+ * @brief   Comando para exibir o conteúdo de um arquivo regular.
+ *
+ * Este comando recebe o nome de um arquivo e exibe seu conteúdo na saída padrão.
+ * Se o arquivo não for regular, retorna um erro.
+ *
+ * @param argc  Número de argumentos passados para o comando.
+ * @param argv  Array de strings contendo os argumentos do comando.
+ * @param fs    Ponteiro para a estrutura do sistema de arquivos EXT2.
+ * @param cwd   Ponteiro para o inode do diretório atual.
+ *
+ * @return Retorna 0 em caso de sucesso, ou -1 em caso de erro.
+ */
+int cmd_cat(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
+{
+    if (argc != 2)
+    {
+        fprintf(stderr, "Uso: cat <arquivo>\n");
+        errno = EINVAL;
+        return -1;
+    }
+
+    // Monta o caminho absoluto do arquivo
+    char *caminho_completo = fs_join_path(fs, *cwd, argv[1]);
+    if (!caminho_completo)
+        return -1;
+
+    // Resolve o caminho para obter o número do inode
+    uint32_t inode_num;
+    if (fs_path_resolve(fs, caminho_completo, &inode_num) < 0)
+    {
+        free(caminho_completo);
+        return -1;
+    }
+
+    // Lê o inode do arquivo
+    struct ext2_inode inode;
+    if (fs_read_inode(fs, inode_num, &inode) < 0)
+    {
+        free(caminho_completo);
+        return -1;
+    }
+
+    // Verifica se é um arquivo regular
+    if (!ext2_is_reg(&inode))
+    {
+        fprintf(stderr, "%s: não é um arquivo regular\n", argv[1]);
+        free(caminho_completo);
+        errno = EISDIR;
+        return -1;
+    }
+
+    // Exibe o conteúdo do arquivo
+    int resultado = dump_file(fs, &inode);
+    putchar('\n');
+    free(caminho_completo);
+    return resultado;
 }

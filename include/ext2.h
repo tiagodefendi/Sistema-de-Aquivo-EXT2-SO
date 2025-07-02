@@ -1,25 +1,29 @@
-/*
- * Estruturas básicas e definições para manipular imagens EXT2 (versão simplificada para o projeto).
- *
- * Simplificações adotadas:
- *   • Tamanho de bloco fixo em 1024 bytes (EXT2_BLOCK_SIZE).
- *   • Sem suporte a fragmentos ou ponteiros triplamente indiretos (ainda assim mantemos o campo reservando EXT2_N_BLOCKS = 15).
- *   • Máx. de 64 MiB por arquivo e diretórios cabendo em 1 bloco.
- */
-
 #ifndef EXT2_H
 #define EXT2_H
 
 #include <stdint.h>
 
-/* ─────────────────────────── Constantes ─────────────────────────── */
-#define EXT2_SUPER_MAGIC 0xEF53 /* Assinatura do superbloco */
-#define EXT2_BLOCK_SIZE 1024    /* Bloco fixo: 1 KiB        */
-#define EXT2_INODE_SIZE 128     /* Tamanho clássico (rev 0) */
-#define EXT2_N_BLOCKS 15        /* 12 + 1 + 1 + 1           */
-#define EXT2_NAME_LEN 255       /* Máx. nome de arquivo     */
+/**
+ * @file    ext2.h
+ *
+ * Definições e estruturas para manipulação de imagens EXT2.
+ *
+ * @authors Artur Bento de Carvalho
+ *          Eduardo Riki Matushita
+ *          Rafaela Tieri Iwamoto Ferreira
+ *          Tiago Defendi da Silva
+ * 
+ * @date    01/07/2025
+ */
 
-/* Bits de tipo/permissão em i_mode (apenas os usados no projeto) */
+#define EXT2_SUPER_MAGIC 0xEF53 // Assinatura do superbloco
+#define EXT2_BLOCK_SIZE 1024    // Bloco fixo: 1 KiB
+#define EXT2_N_BLOCKS 15        // 12 + 1 + 1 + 1
+#define EXT2_NAME_LEN 255       // Tamanho máximo de nome de arquivo
+
+/* --------------- Valores de modo de arquivo (i_mode) --------------- */
+
+// Formato de arquivo
 #define EXT2_S_IFSOCK 0xC000
 #define EXT2_S_IFLNK 0xA000
 #define EXT2_S_IFREG 0x8000
@@ -27,7 +31,7 @@
 #define EXT2_S_IFDIR 0x4000
 #define EXT2_S_IFCHR 0x2000
 #define EXT2_S_IFIFO 0x1000
-
+// Direitos de acesso
 #define EXT2_S_IRUSR 0x0100
 #define EXT2_S_IWUSR 0x0080
 #define EXT2_S_IXUSR 0x0040
@@ -38,7 +42,7 @@
 #define EXT2_S_IWOTH 0x0002
 #define EXT2_S_IXOTH 0x0001
 
-/* Tipos de entrada em diretório (dir_entry.file_type) */
+// Tipos de entrada em diretório
 #define EXT2_FT_UNKNOWN 0
 #define EXT2_FT_REG_FILE 1
 #define EXT2_FT_DIR 2
@@ -48,10 +52,13 @@
 #define EXT2_FT_SOCK 6
 #define EXT2_FT_SYMLINK 7
 
-/* ───────────────────────── Estruturas on‑disk ───────────────────── */
+// Inodes reservados
+#define EXT2_BAD_INO         1
+#define EXT2_ROOT_INO        2
 
-/* Superbloco – 1024 bytes após o início da imagem */
-struct ext2_super_block
+/* --------------- Estruturas --------------- */
+
+struct ext2_super_block // Superbloco
 {
     uint32_t s_inodes_count;
     uint32_t s_blocks_count;
@@ -104,54 +111,51 @@ struct ext2_super_block
     uint8_t s_reserved[760];
 } __attribute__((packed));
 
-/* Descritor de grupo de blocos */
-struct ext2_group_desc
+struct ext2_group_desc // Descritor de grupo de blocos
 {
-    uint32_t bg_block_bitmap;      /* Bloco do bitmap de blocos   */
-    uint32_t bg_inode_bitmap;      /* Bloco do bitmap de inodes   */
-    uint32_t bg_inode_table;       /* Bloco inicial da tabela ino */
-    uint16_t bg_free_blocks_count; /* # blocos livres no grupo    */
-    uint16_t bg_free_inodes_count; /* # inodes livres no grupo    */
-    uint16_t bg_used_dirs_count;   /* # diretórios no grupo       */
+    uint32_t bg_block_bitmap;
+    uint32_t bg_inode_bitmap;
+    uint32_t bg_inode_table;
+    uint16_t bg_free_blocks_count;
+    uint16_t bg_free_inodes_count;
+    uint16_t bg_used_dirs_count;
     uint16_t bg_pad;
     uint8_t bg_reserved[12];
 } __attribute__((packed));
 
-/* Inode (128 bytes, formato rev 0) */
-struct ext2_inode
+struct ext2_inode // Inode (estrutura de arquivo)
 {
-    uint16_t i_mode;                 /* tipo & permissões            */
-    uint16_t i_uid;                  /* UID dono                     */
-    uint32_t i_size;                 /* tamanho (bytes)              */
-    uint32_t i_atime;                /* último acesso (epoch)        */
-    uint32_t i_ctime;                /* criação                      */
-    uint32_t i_mtime;                /* última modificação           */
-    uint32_t i_dtime;                /* deleção (0 se ativo)         */
-    uint16_t i_gid;                  /* GID dono                     */
-    uint16_t i_links_count;          /* contagem de links            */
-    uint32_t i_blocks;               /* blocos de 512 B alocados     */
-    uint32_t i_flags;                /* flags ext2                   */
-    uint32_t i_osd1;                 /* reservado                    */
-    uint32_t i_block[EXT2_N_BLOCKS]; /* ponteiros de dados       */
+    uint16_t i_mode;
+    uint16_t i_uid;
+    uint32_t i_size;
+    uint32_t i_atime;
+    uint32_t i_ctime;
+    uint32_t i_mtime;
+    uint32_t i_dtime;
+    uint16_t i_gid;
+    uint16_t i_links_count;
+    uint32_t i_blocks;
+    uint32_t i_flags;
+    uint32_t i_osd1;
+    uint32_t i_block[EXT2_N_BLOCKS];
     uint32_t i_generation;
     uint32_t i_file_acl;
-    uint32_t i_dir_acl; /* ou high‑size em arquivos >4G */
-    uint32_t i_faddr;   /* fragmento (não usado)        */
-    uint8_t i_osd2[12]; /* reservado                    */
+    uint32_t i_dir_acl;
+    uint32_t i_faddr;
+    uint8_t i_osd2[12];
 } __attribute__((packed));
 
-/* Entrada de diretório (máx 255 caracteres) */
-struct ext2_dir_entry
+struct ext2_dir_entry // Entrada de diretório
 {
-    uint32_t inode;    /* nº inode do alvo             */
-    uint16_t rec_len;  /* deslocamento p/ próxima ent. */
-    uint8_t name_len;  /* tamanho do nome              */
-    uint8_t file_type; /* EXT2_FT_*                    */
+    uint32_t inode;
+    uint16_t rec_len;
+    uint8_t name_len;
+    uint8_t file_type;
     char name[EXT2_NAME_LEN];
 } __attribute__((packed));
 
-/* ──────────────────────── Macros utilitárias ────────────────────── */
-#define EXT2_BLOCK_OFFSET(b) ((b) * EXT2_BLOCK_SIZE)
-#define EXT2_INODES_PER_BLOCK (EXT2_BLOCK_SIZE / EXT2_INODE_SIZE)
+/* --------------- Macros utilitárias --------------- */
 
-#endif /* EXT2_H */
+#define EXT2_SUPER_OFFSET 1024
+
+#endif

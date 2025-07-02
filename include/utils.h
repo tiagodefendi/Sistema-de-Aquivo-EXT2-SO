@@ -1,58 +1,81 @@
-/*
- * utils.h — Funções auxiliares para manipular imagens EXT2
- */
-
 #ifndef UTILS_H
 #define UTILS_H
 
-#include "ext2.h"
-#include <stdio.h>
+#include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
+#include <unistd.h>
 
-#ifdef __cplusplus
-extern "C"
+#include "ext2.h"
+
+/**
+ * @file    utils.h
+ *
+ * Definições e protótipos de funções utilitárias para manipulação de imagens EXT2.
+ *
+ * @authors Artur Bento de Carvalho
+ *          Eduardo Riki Matushita
+ *          Rafaela Tieri Iwamoto Ferreira
+ *          Tiago Defendi da Silva
+ *
+ * @date    01/07/2025
+ */
+
+typedef struct
 {
-#endif
+    int fd;                     // Descritor de arquivo da imagem
+    struct ext2_super_block sb; // Superbloco do sistema de arquivos
+    uint32_t groups_count;      // Número de grupos de blocos
+} ext2_fs_t;
 
-    /* Funções de manipulação de imagem */
-    int load_image(const char *path);
+/* --------------- Acesso a imagem --------------- */
+ext2_fs_t *fs_open(char *img_path);
+void fs_close(ext2_fs_t *fs);
+off_t fs_block_offset(ext2_fs_t *fs, uint32_t block);
+int fs_read_block(ext2_fs_t *fs, uint32_t block, void *buf);
+int fs_write_block(ext2_fs_t *fs, uint32_t block, void *buf);
 
-    /* Funções auxiliares */
-    void reset_path();
+/* --------------- Descritores de grupo --------------- */
+int fs_read_group_desc(ext2_fs_t *fs, uint32_t group, struct ext2_group_desc *gd);
+int fs_write_group_desc(ext2_fs_t *fs, uint32_t group, struct ext2_group_desc *gd);
 
-    /* ──────────────── Interface de alto nível ──────────────── */
+/* --------------- Inodes --------------- */
+int fs_read_inode(ext2_fs_t *fs, uint32_t ino, struct ext2_inode *inode);
+int fs_write_inode(ext2_fs_t *fs, uint32_t ino, struct ext2_inode *inode);
+int fs_alloc_inode(ext2_fs_t *fs, uint16_t mode, uint32_t *out_ino);
+int fs_free_inode(ext2_fs_t *fs, uint32_t ino);
+void print_entry(struct ext2_dir_entry *e);
 
-    /* Lê o superbloco (offset 1024 B). Retorna 0 em sucesso, -1 erro */
-    int read_superblock(FILE *img, struct ext2_super_block *sb);
+/* --------------- Blocos de dados --------------- */
+int fs_alloc_block(ext2_fs_t *fs, uint32_t *out_block);
+int fs_free_block(ext2_fs_t *fs, uint32_t block);
+int free_inode_blocks(ext2_fs_t *fs, struct ext2_inode *inode);
 
-    /* Lê descritor do grupo 0. Retorna 0 em sucesso, -1 erro */
-    int read_group_desc(FILE *img, const struct ext2_super_block *sb,
-                        struct ext2_group_desc *gd);
+/* --------------- Diretórios --------------- */
+typedef int (*dir_iter_cb)(struct ext2_dir_entry *entry, void *user);
+int fs_iterate_dir(ext2_fs_t *fs, struct ext2_inode *dir_inode, dir_iter_cb cb, void *user);
+int fs_find_in_dir(ext2_fs_t *fs, struct ext2_inode *dir_inode, char *name, uint32_t *out_ino);
+uint16_t rec_len_needed(uint8_t name_len);
 
-    /* Lê inode de número (1‑based). Retorna 0 em sucesso, -1 erro */
-    int read_inode(FILE *img, const struct ext2_super_block *sb,
-                   const struct ext2_group_desc *gd, uint32_t inode_no,
-                   struct ext2_inode *inode);
+/* --------------- Caminhos --------------- */
+int fs_path_resolve(ext2_fs_t *fs, char *path, uint32_t *ino);
+char *fs_get_path(ext2_fs_t *fs, uint32_t dir_ino);
+char *fs_join_path(ext2_fs_t *fs, uint32_t cwd, const char *rel);
 
-    /* Converte i_mode para tipo de arquivo (char 'd', '-', 'l', etc.) */
-    char mode_to_filetype(uint16_t mode);
+/* --------------- Sincronização --------------- */
+int fs_sync_super(ext2_fs_t *fs);
 
-    /* Constrói string de permissões estilo ls (10 chars + NUL) */
-    void mode_to_permstr(uint16_t mode, char perm[11]);
+/* --------------- Nomes --------------- */
+int name_exists(ext2_fs_t *fs, struct ext2_inode *dir_inode, char *name);
 
-    /* Bloco inicial da tabela de inodes do grupo */
-    uint32_t inode_table_block(const struct ext2_group_desc *gd);
-
-    /* Debug: imprime resumo do superbloco */
-    void print_superblock(const struct ext2_super_block *sb);
-
-    int read_block(FILE *img, uint32_t bno, void *buf);
-
-#ifdef __cplusplus
+/* --------------- Conveniências --------------- */
+static inline int ext2_is_dir(struct ext2_inode *inode) // Verifica se o inode é um diretório
+{
+    return (inode->i_mode & EXT2_S_IFDIR) == EXT2_S_IFDIR;
 }
-#endif
 
-#endif /* UTILS_H */
+static inline int ext2_is_reg(struct ext2_inode *inode) // Verifica se o inode é um arquivo regular
+{
+    return (inode->i_mode & EXT2_S_IFREG) == EXT2_S_IFREG;
+}
+
+#endif

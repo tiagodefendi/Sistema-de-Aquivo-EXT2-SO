@@ -1,170 +1,170 @@
-/*
- * Shell interativo (ext2shell)
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include "ext2.h"
-#include "utils.h"
+#include <limits.h>
+#include <unistd.h>
+
 #include "commands.h"
 
-#define MAX_LINE 256 /* tamanho máximo de comando */
-#define MAX_ARGS 8   /* nº máx de argumentos suportados */
+/**
+ * @file    main.c
+ *
+ * Implementa um shell simples para interagir com um sistema de arquivos ext2.
+ *
+ * @authors Artur Bento de Carvalho
+ *          Eduardo Riki Matushita
+ *          Rafaela Tieri Iwamoto Ferreira
+ *          Tiago Defendi da Silva
+ * 
+ * @date    01/07/2025
+ */
 
-/* remove newline final de fgets() */
-static void trim_newline(char *s)
+#define MAX_TOKENS 32
+#define MAX_BUFFER_SHELL 1024
+
+/**
+ * @brief   Tokeniza uma string de entrada em argumentos separados.
+ *
+ * Esta função divide a string de entrada `line` em tokens com base em caracteres de espaço,
+ * tabulação ou nova linha, armazenando ponteiros para cada token no array `argv`.
+ * O último elemento de `argv` é definido como NULL para marcar o fim dos argumentos.
+ *
+ * @param   line String de entrada a ser tokenizada.
+ * @param   argv Array onde os tokens serão armazenados.
+ *
+ * @return  O número de tokens encontrados e armazenados em `argv`.
+ */
+int tokenize(char *line, char **argv)
 {
-    size_t len = strlen(s);
-    if (len && s[len - 1] == '\n')
-        s[len - 1] = '\0';
+    int argc = 0;
+    for (char *tok = strtok(line, " \t\n"); tok && argc < MAX_TOKENS - 1; tok = strtok(NULL, " \t\n"))
+        argv[argc++] = tok;
+    argv[argc] = NULL;
+    return argc;
 }
 
-/* Despacha argv[0] conforme comando solicitado; retorna <0 para sair */
-static int dispatch(char **argv, int argc, FILE *img, char *cwd)
+/**
+ * @brief   Imprime uma mensagem de erro genérica.
+ * @param   msg Mensagem a ser exibida.
+ * @return  Nenhum valor é retornado.
+ */
+void print_errno(const char *msg)
 {
-    if (argc == 0)
-        return 0;
-
-    /* comandos de término do shell */
-    if (strcmp(argv[0], "exit") == 0 || strcmp(argv[0], "quit") == 0)
-        return -1;
-
-    /* --------- comandos já implementados --------- */
-    if (strcmp(argv[0], "info") == 0)
-    {
-        if (argc != 1)
-        {
-            fprintf(stderr, "info: invalid syntax.\n");
-            return 0;
-        }
-        if (cmd_info(img) != 0)
-            fprintf(stderr, "info: failed.\n");
-        return 0;
-    }
-
-    /* ----- comando ls ----- */
-    if (strcmp(argv[0], "ls") == 0)
-    {
-        if (argc > 1)
-        {
-            fprintf(stderr, "ls: invalid syntax.\n");
-            return 0;
-        }
-        cmd_ls(img, cwd);
-        return 0;
-    }
-
-    /* ---------- cat <filename> ---------- */
-    if (strcmp(argv[0], "cat") == 0)
-    {
-        if (argc != 2)
-        {
-            fprintf(stderr, "cat: usage: cat <filename>\n");
-            return 0;
-        }
-        if (cmd_cat(img, cwd, argv[1]) != 0)
-            fprintf(stderr, "cat: failed.\n");
-        return 0;
-    }
-
-    /* ---------------- pwd ---------------- */
-    if (strcmp(argv[0], "pwd") == 0)
-    {
-        if (argc != 1)
-        {
-            fprintf(stderr, "pwd: too many arguments.\n");
-            return 0;
-        }
-        if (cmd_pwd(cwd) != 0)
-            fprintf(stderr, "pwd: failed.\n");
-        return 0;
-    }
-
-    /* ---------------- attr ---------------- */
-    if (strcmp(argv[0], "attr") == 0)
-    {
-        if (argc != 2)
-        {
-            fprintf(stderr, "attr: usage attr <file|dir>\n");
-            return 0;
-        }
-        if (cmd_attr(img, cwd, argv[1]) != 0)
-            fprintf(stderr, "attr: failed\n");
-        return 0;
-    }
-
-    /* --------------- print --------------- */
-    if (strcmp(argv[0], "print") == 0)
-    {
-        if (cmd_print(img, cwd, argc, argv) != 0)
-            fprintf(stderr, "print: failed\n");
-        return 0;
-    }
-
-    /* ---------------- cd ---------------- */
-    if (strcmp(argv[0], "cd") == 0)
-    {
-        if (argc != 2)
-        {
-            fprintf(stderr, "cd: usage cd <path>\\n");
-            return 0;
-        }
-        cmd_cd(img, cwd, argv[1]);
-        return 0;
-    }
-
-    /* ------------- not found ------------- */
-    fprintf(stderr, "command not found.\n");
-    return 0;
+    fprintf(stderr, "%s\n", strerror(errno));
 }
 
-int main(int argc, char *argv[])
+// Tabela de comandos
+struct command_entry cmd_table[] = {
+    {"info", cmd_info, "Exibe informações do disco e do sistema de arquivos."},
+    {"ls", cmd_ls, "Lista os arquivos e diretórios do diretório corrente."},
+    {"cd", cmd_cd, "Altera o diretório corrente para o definido como <path>."},
+    {"pwd", cmd_pwd, "Exibe o diretório corrente (caminho absoluto)."},
+    {"cat", cmd_cat, "Exibe o conteúdo de um arquivo <file> no formato texto."},
+    {"attr", cmd_attr, "Exibe os atributos de um arquivo (<file>) ou diretório (<dir>)."},
+    {"touch", cmd_touch, "Cria o arquivo <file> com conteúdo vazio."},
+    {"mkdir", cmd_mkdir, "Cria o diretório <dir> vazio."},
+    {"rm", cmd_rm, "Remove o arquivo <file> do sistema."},
+    {"rmdir", cmd_rmdir, "Remove o diretório <dir>, se estiver vazio."},
+    {"rename", cmd_rename, "Renomeia arquivo <file> para <newfilename>."},
+    {"cp", cmd_cp, "Copia um arquivo de origem (<source_path>) para destino (<target_path>)."},
+    {"print", cmd_print, "Exibe informações do sistema EXT2."},
+    CMD_TABLE_END};
+
+/**
+ * @brief   Mostra a ajuda do shell.
+ * @param   Nenhum parâmetro é necessário.
+ * @return  Nenhum valor é retornado.
+ */
+void mostrar_help()
 {
-    if (argc < 2)
+    printf("Comandos disponíveis:\n");
+    for (struct command_entry *ce = cmd_table; ce->name; ++ce)
+        printf("  %-8s - %s\n", ce->name, ce->help ? ce->help : "(sem ajuda)");
+    puts("  help     - Exibe todos os comandos disponíveis.");
+    puts("  exit     - Finaliza o shell.");
+}
+
+/**
+ * @brief   Função principal do shell.
+ *
+ * Esta função inicializa o sistema de arquivos, lê os comandos do usuário e os executa.
+ *
+ * @param   argc Número de argumentos da linha de comando.
+ * @param   argv Array de strings com os argumentos da linha de comando.
+ *
+ * @return  Número inteiro de sucesso (0) ou falha (1).
+ */
+int main(int argc, char **argv)
+{
+    if (argc != 2)
     {
-        fprintf(stderr, "usage: %s <ext2_image>\n", argv[0]);
+        fprintf(stderr, "Uso: %s <imagem.ext2>\n", argv[0]);
         return EXIT_FAILURE;
     }
 
-    /* --- abre imagem para leitura/escrita binária --- */
-    FILE *img = fopen(argv[1], "r+b");
-    if (!img)
+    ext2_fs_t *fs = fs_open(argv[1]); // Abre a imagem do sistema de arquivos
+    if (!fs)
     {
-        perror("fopen");
+        print_errno("Erro ao abrir a imagem do sistema de arquivos.");
         return EXIT_FAILURE;
     }
 
-    char cwd[256] = "/"; /* diretório corrente em formato texto */
-    char line[MAX_LINE];
-    char *args[MAX_ARGS + 1];
+    uint32_t cwd = EXT2_ROOT_INO; // Diretório corrente
+    char line[MAX_BUFFER_SHELL];
 
-    /* --------------- loop do prompt --------------- */
     while (1)
     {
-        printf("\033[1;34m[%s]$> \033[0m", cwd);
-        fflush(stdout);
+        char *pwd = fs_get_path(fs, cwd);        // Caminho atual
+        printf("\033[1;34m[%s]\033[0m$> ", pwd); // [Diretório]$>
+        free(pwd);
+        fflush(stdout); // Garante que o prompt seja exibido antes de ler a entrada
 
-        if (!fgets(line, sizeof(line), stdin))
-            break; /* EOF / Ctrl+D */
-
-        trim_newline(line);
-
-        /* tokenização simples por espaço/tab */
-        int argc_cmd = 0;
-        char *tok = strtok(line, " \t");
-        while (tok && argc_cmd < MAX_ARGS)
+        // Lê a linha de comando do usuário
+        if (fgets(line, sizeof(line), stdin) == NULL)
         {
-            args[argc_cmd++] = tok;
-            tok = strtok(NULL, " \t");
+            putchar('\n');
+            break; /* EOF ou erro */
         }
-        args[argc_cmd] = NULL;
 
-        if (dispatch(args, argc_cmd, img, cwd) < 0)
+        char *argvv[MAX_TOKENS]; // Array para armazenar os argumentos tokenizados
+        int argc_cmd = tokenize(line, argvv);
+        if (argc_cmd == 0)
+            continue; // Linha vazia
+
+        if (strcmp(argvv[0], "exit") == 0 || strcmp(argvv[0], "quit") == 0)
+        {
+            printf("\nSaindo...\n\n");
             break;
+        }
+        if (strcmp(argvv[0], "help") == 0)
+        {
+            mostrar_help();
+            continue;
+        }
+
+        struct command_entry *cmd = NULL;
+        // Procura o comando digitado na tabela de comandos
+        for (struct command_entry *ce = cmd_table; ce->name; ++ce)
+        {
+            if (strcmp(ce->name, argvv[0]) == 0)
+            {
+                cmd = ce;
+                break;
+            }
+        }
+        if (!cmd)
+        {
+            fprintf(stderr, "Comando desconhecido.\n");
+            continue;
+        }
+
+        // Verifica se o comando é válido
+        if (cmd->handler(argc_cmd, argvv, fs, &cwd))
+            print_errno(cmd->name);
     }
 
-    fclose(img);
+    // Fecha o sistema de arquivos
+    fs_close(fs);
     return EXIT_SUCCESS;
 }

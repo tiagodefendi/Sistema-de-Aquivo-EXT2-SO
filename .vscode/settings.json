@@ -4,7 +4,11 @@
         "utils.h": "c",
         "ext2.h": "c",
         "fcntl.h": "c",
-        "alloc.h": "c"
+        "alloc.h": "c",
+        "stddef.h": "c",
+        "typeinfo": "c",
+        "stdint.h": "c",
+        "errno.h": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }

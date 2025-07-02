@@ -1,170 +1,148 @@
-/*
- * attr.c — comando "attr <file|dir>" com suporte a **indireção simples**.
- *
- * Agora o lookup varre:
- *   • os 12 blocos diretos (i_block[0..11])
- *   • todos os blocos de dados referenciados pelo bloco de ponteiros
- *     simples (i_block[12]), permitindo localizar entradas quando o
- *     diretório ultrapassa 12 KiB.
- */
-
 #include <stdio.h>
-#include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <time.h>
-#include "ext2.h"
-#include "utils.h"
+#include "commands.h"
 
-#define ROOT_INO 2
-#define PTRS_PER_BLOCK (EXT2_BLOCK_SIZE / sizeof(uint32_t))
-
-/* ───── I/O helpers ───── */
-static int read_group_desc_idx(FILE *img, uint32_t idx, struct ext2_group_desc *gd)
+/**
+ * @brief Constrói uma string de permissões a partir do inode.
+ *
+ * Esta função converte o modo do inode em uma string de 11 caracteres representando
+ * o tipo de arquivo e as permissões de leitura, escrita e execução para o usuário, grupo e outros.
+ *
+ * @param inode Ponteiro para o inode do arquivo ou diretório.
+ * @param out   String de saída onde as permissões serão armazenadas.
+ *
+ * @return Nenhum.
+ */
+static void build_perm_string(struct ext2_inode *inode, char out[11])
 {
-    long off = 1024 + EXT2_BLOCK_SIZE + idx * sizeof *gd; /* 1 KiB block */
-    if (fseek(img, off, SEEK_SET) != 0)
-        return -1;
-    return fread(gd, sizeof *gd, 1, img) == 1 ? 0 : -1;
-}
+    uint16_t mode = inode->i_mode;
 
-/* Procura 'name' em blocos diretos e indireto simples de 'dir' */
-static uint32_t lookup_inode(FILE *img, const struct ext2_inode *dir,
-                             const char *name)
-{
-    size_t nlen = strlen(name);
-    uint8_t buf[EXT2_BLOCK_SIZE];
-
-    /* — 1. Blocos diretos — */
-    for (int b = 0; b < 12 && dir->i_block[b]; ++b)
-    {
-        if (read_block(img, dir->i_block[b], buf) != 0)
-            return 0;
-        uint32_t off = 0;
-        while (off + 8 <= EXT2_BLOCK_SIZE)
-        {
-            struct ext2_dir_entry *de = (struct ext2_dir_entry *)(buf + off);
-            if (de->rec_len < 8)
-                break;
-            if (de->inode && de->name_len == nlen &&
-                strncmp(de->name, name, nlen) == 0)
-                return de->inode;
-            off += de->rec_len;
-        }
-    }
-
-    /* — 2. Indireção simples — */
-    uint32_t ind_blk = dir->i_block[12];
-    if (!ind_blk)
-        return 0; /* diretório < 12 KiB */
-
-    uint32_t ptrs[PTRS_PER_BLOCK];
-    if (read_block(img, ind_blk, ptrs) != 0)
-        return 0;
-
-    for (uint32_t i = 0; i < PTRS_PER_BLOCK && ptrs[i]; ++i)
-    {
-        if (read_block(img, ptrs[i], buf) != 0)
-            return 0;
-        uint32_t off = 0;
-        while (off + 8 <= EXT2_BLOCK_SIZE)
-        {
-            struct ext2_dir_entry *de = (struct ext2_dir_entry *)(buf + off);
-            if (de->rec_len < 8)
-                break;
-            if (de->inode && de->name_len == nlen &&
-                strncmp(de->name, name, nlen) == 0)
-                return de->inode;
-            off += de->rec_len;
-        }
-    }
-    return 0; /* não achou */
-}
-
-/* Tempo → DD/MM/AAAA HH:MM */
-static void fmt_time(uint32_t epoch, char *out, size_t sz)
-{
-    time_t t = (time_t)epoch;
-    struct tm *tm = gmtime(&t);
-    if (tm)
-        strftime(out, sz, "%d/%m/%Y %H:%M", tm);
-}
-
-static void fmt_size(uint32_t bytes, char *out, size_t sz)
-{
-    if (bytes < 1024)
-        snprintf(out, sz, "%u B", bytes);
-    else if (bytes < 1048576)
-        snprintf(out, sz, "%.1f KiB", bytes / 1024.0);
+    // Tipo de arquivo
+    if ((mode & 0xF000) == EXT2_S_IFDIR)
+        out[0] = 'd';
+    else if ((mode & 0xF000) == EXT2_S_IFREG)
+        out[0] = '-';
+    else if ((mode & 0xF000) == EXT2_S_IFLNK)
+        out[0] = 'l';
+    else if ((mode & 0xF000) == EXT2_S_IFCHR)
+        out[0] = 'c';
+    else if ((mode & 0xF000) == EXT2_S_IFBLK)
+        out[0] = 'b';
+    else if ((mode & 0xF000) == EXT2_S_IFIFO)
+        out[0] = 'p';
+    else if ((mode & 0xF000) == EXT2_S_IFSOCK)
+        out[0] = 's';
     else
-        snprintf(out, sz, "%.1f MiB", bytes / 1048576.0);
+        out[0] = '?';
+
+    // Permissões: usuário, grupo, outros
+    out[1] = (mode & EXT2_S_IRUSR) ? 'r' : '-';
+    out[2] = (mode & EXT2_S_IWUSR) ? 'w' : '-';
+    out[3] = (mode & EXT2_S_IXUSR) ? 'x' : '-';
+    out[4] = (mode & EXT2_S_IRGRP) ? 'r' : '-';
+    out[5] = (mode & EXT2_S_IWGRP) ? 'w' : '-';
+    out[6] = (mode & EXT2_S_IXGRP) ? 'x' : '-';
+    out[7] = (mode & EXT2_S_IROTH) ? 'r' : '-';
+    out[8] = (mode & EXT2_S_IWOTH) ? 'w' : '-';
+    out[9] = (mode & EXT2_S_IXOTH) ? 'x' : '-';
+    out[10] = '\0';
 }
 
-int cmd_attr(FILE *img, const char *cwd, const char *target)
+/**
+ * @brief Converte bytes em string humana (B, KiB, MiB)
+ *
+ * Esta função converte um valor em bytes para uma representação de string mais legível,
+ * usando as unidades apropriadas (B, KiB, MiB).
+ *
+ * @param bytes  O valor em bytes a ser convertido.
+ * @param out    O buffer de saída onde a string resultante será armazenada.
+ * @param outsz  O tamanho do buffer de saída.
+ *
+ * @return Nenhum.
+ */
+static void human_size(uint32_t bytes, char *out, size_t outsz)
 {
-    if (!target)
+    if (bytes < 1024) // Se for menor que 1 KiB, exibe em bytes
     {
-        fprintf(stderr, "attr: missing operand\n");
+        snprintf(out, outsz, "%u B", bytes);
+    }
+    else if (bytes < 1024 * 1024) // Se for menor que 1 MiB, exibe em KiB
+    {
+        double k = bytes / 1024.0;
+        snprintf(out, outsz, "%.1f KiB", k);
+    }
+    else if (bytes < 1024 * 1024 * 1024) // Se for menor que 1 GiB, exibe em MiB
+    {
+        double m = bytes / 1048576.0;
+        snprintf(out, outsz, "%.1f MiB", m);
+    }
+}
+
+/**
+ * @brief Comando para exibir atributos de um arquivo ou diretório.
+ *
+ * Este comando recebe o nome de um arquivo ou diretório e exibe:
+ * Permissões, UID, GID, tamanho e data de modificação.
+ *
+ * @param argc Número de argumentos passados para o comando.
+ * @param argv Array de strings contendo os argumentos do comando.
+ * @param fs Ponteiro para a estrutura do sistema de arquivos EXT2.
+ * @param cwd Ponteiro para o inode do diretório atual.
+ *
+ * @return Retorna 0 em caso de sucesso, ou -1 em caso de erro.
+ */
+int cmd_attr(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
+{
+    if (argc != 2)
+    {
+        fprintf(stderr, "Uso: attr <arquivo|diretório>\n");
+        errno = EINVAL;
         return -1;
     }
-    if (strcmp(cwd, "/") != 0)
+
+    char *full_path = fs_join_path(fs, *cwd, argv[1]); // Combina o diretório atual com o caminho fornecido
+    if (!full_path)
+        return -1;
+
+    uint32_t inode_num;
+    if (fs_path_resolve(fs, full_path, &inode_num) < 0) // Resolve o caminho para obter o inode correspondente
     {
-        fprintf(stderr, "attr: navegação além da raiz não implementada\n");
+        fprintf(stderr, "Erro: caminho '%s' não encontrado.\n", argv[1]);
+        free(full_path);
         return -1;
     }
 
-    /* 1. Superbloco + descritor grupo raiz */
-    struct ext2_super_block sb;
-    if (read_superblock(img, &sb) != 0)
-        return -1;
-    struct ext2_group_desc gd_root;
-    if (read_group_desc_idx(img, 0, &gd_root) != 0)
-        return -1;
-
-    /* 2. Inode raiz */
-    struct ext2_inode root_ino;
-    if (read_inode(img, &sb, &gd_root, ROOT_INO, &root_ino) != 0)
-        return -1;
-
-    /* 3. Localiza inode‑alvo (agora cobre indireção simples) */
-    uint32_t ino_no = lookup_inode(img, &root_ino, target);
-    if (!ino_no)
+    struct ext2_inode inode;
+    if (fs_read_inode(fs, inode_num, &inode) < 0) // Lê o inode do arquivo ou diretório
     {
-        fprintf(stderr, "attr: '%s' not found\n", target);
+        fprintf(stderr, "Erro ao ler inode.\n");
+        free(full_path);
         return -1;
     }
 
-    /* Grupo que contém o inode */
-    uint32_t grp = (ino_no - 1) / sb.s_inodes_per_group;
+    char perm_str[11];
+    build_perm_string(&inode, perm_str); // Constrói a string de permissões a partir do inode
 
-    /* Descritor do grupo correto */
-    struct ext2_group_desc gd;
-    long gd_off = 1024 + EXT2_BLOCK_SIZE + grp * sizeof gd;
-    if (fseek(img, gd_off, SEEK_SET) != 0 ||
-        fread(&gd, sizeof gd, 1, img) != 1)
-        return -1;
-
-    /* Índice (0-based) dentro do grupo */
-    uint32_t idx_local = (ino_no - 1) % sb.s_inodes_per_group;
-
-    /* Bloco da tabela de inodes + deslocamento */
-    uint32_t blk = gd.bg_inode_table + idx_local / EXT2_INODES_PER_BLOCK;
-    uint32_t off_in_blk = (idx_local % EXT2_INODES_PER_BLOCK) * EXT2_INODE_SIZE;
-
-    struct ext2_inode ino;
-    long off_file = EXT2_BLOCK_OFFSET(blk) + off_in_blk;
-    if (fseek(img, off_file, SEEK_SET) != 0 ||
-        fread(&ino, sizeof ino, 1, img) != 1)
-        return -1;
-
-    /* 5. Formatação de saída */
-    char perm[11];
-    mode_to_permstr(ino.i_mode, perm);
     char size_str[32];
-    fmt_size(ino.i_size, size_str, sizeof size_str);
-    char mtime_s[20];
-    fmt_time(ino.i_mtime, mtime_s, sizeof mtime_s);
+    human_size(inode.i_size, size_str, sizeof(size_str)); // Converte o tamanho do arquivo em uma string legível
 
-    printf("permissões\tuid\tgid\ttamanho\t\tmodificado em\n");
-    printf("%s\t%u\t%u\t%s\t\t%s\n", perm, ino.i_uid, ino.i_gid, size_str, mtime_s);
+    char mod_date[20];
+    time_t mod_time = inode.i_mtime;
+    struct tm tm_info;
+    localtime_r(&mod_time, &tm_info);
+    strftime(mod_date, sizeof(mod_date), "%d/%m/%Y %H:%M", &tm_info); // Formata a data de modificação
+
+    printf("%-11s %-6s %-6s %-12s %-17s\n", "Permissões", "UID", "GID", "Tamanho", "Modificado em");
+    printf("%-10s %-6u %-6u %-12s %-17s\n",
+           perm_str,
+           inode.i_uid,
+           inode.i_gid,
+           size_str,
+           mod_date);
+
+    free(full_path);
     return 0;
 }

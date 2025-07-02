@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <libgen.h>
 #include "commands.h"
 
 /**
@@ -181,10 +182,7 @@ static int resolve_image_path(ext2_fs_t *fs, uint32_t cwd, char *arg, char **abs
 
     int found = fs_path_resolve(fs, abs_path, ino_out);
     *abs_out = abs_path;
-
-    if (found == 0)
-        return 1;
-    return 0;
+    return (found == 0) ? 1 : 0;
 }
 
 /**
@@ -209,45 +207,62 @@ int cmd_cp(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         return -1;
     }
 
-    char *src_path = NULL, *dst_path = NULL;
+    char *src_path = NULL;
     uint32_t src_ino = 0;
-
-    // Resolve o caminho do arquivo de origem na imagem EXT2
-    int src_found = resolve_image_path(fs, *cwd, argv[1], &src_path, &src_ino);
-    if (src_found < 0)
-        return -1;
-
-    // O destino deve ser um caminho no host, não na imagem
-    int dst_found = resolve_image_path(fs, *cwd, argv[2], &dst_path, NULL);
-    if (dst_found < 0)
+    if (resolve_image_path(fs, *cwd, argv[1], &src_path, &src_ino) <= 0)
     {
+        fprintf(stderr, "Arquivo de origem não encontrado: %s\n", argv[1]);
         free(src_path);
-        return -1;
-    }
-
-    // Só permitimos copiar da imagem para o host
-    if (!src_found)
-    {
-        fprintf(stderr, "Arquivo de origem não encontrado na imagem: %s\n", argv[1]);
-        free(src_path);
-        free(dst_path);
         errno = ENOENT;
         return -1;
     }
-    if (dst_found)
+
+    const char *dst_arg = argv[2];
+    char *dst_full = NULL;
+    struct stat st;
+    int needs_suffix = 0;
+
+    // Se terminar com '/' ou for um diretório existente, adiciona basename
+    if (dst_arg[strlen(dst_arg) - 1] == '/' || (stat(dst_arg, &st) == 0 && S_ISDIR(st.st_mode)))
     {
-        fprintf(stderr, "O destino deve ser um caminho no host, não na imagem EXT2.\n");
-        free(src_path);
-        free(dst_path);
-        errno = ENOTSUP;
-        return -1;
+        needs_suffix = 1;
     }
 
-    int rc = copy_ext2_to_host(fs, src_ino, dst_path);
+    if (needs_suffix)
+    {
+        char *tmp = strdup(src_path);
+        char *base = basename(tmp);
+        size_t len = strlen(dst_arg) + (dst_arg[strlen(dst_arg) - 1] == '/' ? 0 : 1) + strlen(base) + 1;
+        dst_full = malloc(len);
+        if (!dst_full)
+        {
+            perror("malloc");
+            free(tmp);
+            free(src_path);
+            return -1;
+        }
+        snprintf(dst_full, len, "%s%s%s",
+                 dst_arg,
+                 dst_arg[strlen(dst_arg) - 1] == '/' ? "" : "/",
+                 base);
+        free(tmp);
+    }
+    else
+    {
+        dst_full = strdup(dst_arg);
+        if (!dst_full)
+        {
+            perror("strdup");
+            free(src_path);
+            return -1;
+        }
+    }
+
+    int rc = copy_ext2_to_host(fs, src_ino, dst_full);
     if (rc < 0)
         perror("cp");
 
     free(src_path);
-    free(dst_path);
+    free(dst_full);
     return rc;
 }

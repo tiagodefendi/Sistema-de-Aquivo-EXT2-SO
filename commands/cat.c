@@ -49,115 +49,60 @@ int dump_blk(ext2_fs_t *fs, uint32_t blk, uint32_t nbytes)
  */
 int dump_file(ext2_fs_t *fs, const struct ext2_inode *in)
 {
-    uint32_t bytes_left = inode->i_size;
-    int result = 0;
+    uint32_t bytes_left = in->i_size;
 
-    // Blocos diretos (0-11)
-    for (int i = 0; i < 12 && bytes_left; ++i)
+    // Blocos diretos
+    for (int i = 0; i < 12 && bytes_left > 0; ++i)
     {
-        uint8_t buf[EXT2_BLOCK_SIZE];
-        uint32_t blk = inode->i_block[i];
-        uint32_t n = (bytes_left >= EXT2_BLOCK_SIZE) ? EXT2_BLOCK_SIZE : bytes_left;
-        if (blk != 0) {
-            if (fs_read_block(fs, blk, buf) < 0) {
-                result = -1;
-                break;
-            }
-            if (fwrite(buf, 1, n, stdout) != n) {
-                result = -1;
-                break;
-            }
-        } else {
-            uint8_t zero[EXT2_BLOCK_SIZE] = {0};
-            if (fwrite(zero, 1, n, stdout) != n) {
-                result = -1;
-                break;
-            }
-        }
-        bytes_left -= n;
+        uint32_t to_read = (bytes_left < EXT2_BLOCK_SIZE) ? bytes_left : EXT2_BLOCK_SIZE; // Tamanho a ser lido
+        if (dump_blk(fs, in->i_block[i], to_read) < 0)                                    // Lê o bloco do sistema de arquivos
+            return -1;
+        bytes_left -= to_read;
     }
 
-    // Bloco indireto simples (12)
-    if (result == 0 && bytes_left)
+    // Bloco indireto simples
+    if (bytes_left > 0 && in->i_block[12])
     {
-        uint8_t buf[EXT2_BLOCK_SIZE] = {0};
-        if (inode->i_block[12]) {
-            if (fs_read_block(fs, inode->i_block[12], buf) < 0)
-                result = -1;
-        }
-        uint32_t *tbl = (uint32_t *)buf;
-        for (uint32_t j = 0; j < 256 && bytes_left && result == 0; ++j)
+        uint8_t buf[EXT2_BLOCK_SIZE];                    // Buffer para leitura do bloco indireto
+        if (fs_read_block(fs, in->i_block[12], buf) < 0) // Lê o bloco indireto simples
+            return -1;
+        uint32_t *indirect = (uint32_t *)buf;
+        for (uint32_t i = 0; i < PTRS_PER_BLOCK && bytes_left > 0; ++i) // Lê os blocos indiretos
         {
-            uint32_t n = (bytes_left >= EXT2_BLOCK_SIZE) ? EXT2_BLOCK_SIZE : bytes_left;
-            uint32_t blk = inode->i_block[12] ? tbl[j] : 0;
-            if (blk != 0) {
-                uint8_t data[EXT2_BLOCK_SIZE];
-                if (fs_read_block(fs, blk, data) < 0) {
-                    result = -1;
-                    break;
-                }
-                if (fwrite(data, 1, n, stdout) != n) {
-                    result = -1;
-                    break;
-                }
-            } else {
-                uint8_t zero[EXT2_BLOCK_SIZE] = {0};
-                if (fwrite(zero, 1, n, stdout) != n) {
-                    result = -1;
-                    break;
-                }
-            }
-            bytes_left -= n;
+            uint32_t to_read = (bytes_left > EXT2_BLOCK_SIZE) ? EXT2_BLOCK_SIZE : bytes_left; // Tamanho a ser lido
+            if (dump_blk(fs, indirect[i], to_read) < 0)                                       // Lê o bloco indireto
+                return -1;
+            bytes_left -= to_read;
         }
     }
 
-    // Bloco indireto duplo (13)
-    if (result == 0 && bytes_left)
+    // Bloco indireto duplo
+    if (bytes_left > 0 && in->i_block[13])
     {
-        if (!inode->i_block[13]) {
-            errno = EIO;
-            result = -1;
-        } else {
-            uint8_t buf1[EXT2_BLOCK_SIZE], buf2[EXT2_BLOCK_SIZE];
-            if (fs_read_block(fs, inode->i_block[13], buf1) < 0) {
-                result = -1;
-            } else {
-                uint32_t *lvl1 = (uint32_t *)buf1;
-                for (uint32_t i1 = 0; i1 < 256 && bytes_left && result == 0; ++i1) {
-                    uint32_t l2blk = lvl1[i1];
-                    if (l2blk && fs_read_block(fs, l2blk, buf2) < 0) {
-                        result = -1;
-                        break;
-                    }
-                    uint32_t *lvl2 = (uint32_t *)buf2;
-                    for (uint32_t i2 = 0; i2 < 256 && bytes_left && result == 0; ++i2) {
-                        uint32_t blk = l2blk ? lvl2[i2] : 0;
-                        uint32_t n = (bytes_left >= EXT2_BLOCK_SIZE) ? EXT2_BLOCK_SIZE : bytes_left;
-                        if (blk != 0) {
-                            uint8_t data[EXT2_BLOCK_SIZE];
-                            if (fs_read_block(fs, blk, data) < 0) {
-                                result = -1;
-                                break;
-                            }
-                            if (fwrite(data, 1, n, stdout) != n) {
-                                result = -1;
-                                break;
-                            }
-                        } else {
-                            uint8_t zero[EXT2_BLOCK_SIZE] = {0};
-                            if (fwrite(zero, 1, n, stdout) != n) {
-                                result = -1;
-                                break;
-                            }
-                        }
-                        bytes_left -= n;
-                    }
-                }
+        uint8_t buf1[EXT2_BLOCK_SIZE], buf2[EXT2_BLOCK_SIZE]; // Buffers para leitura
+        if (fs_read_block(fs, in->i_block[13], buf1) < 0)
+            return -1;
+        uint32_t *dbl_indirect = (uint32_t *)buf1;
+
+        for (uint32_t i = 0; i < PTRS_PER_BLOCK && bytes_left > 0; ++i) // Lê os blocos indiretos duplos
+        {
+            if (!dbl_indirect[i]) // Verifica se o ponteiro é nulo
+                continue;
+            if (fs_read_block(fs, dbl_indirect[i], buf2) < 0) // Lê o bloco indireto duplo
+                return -1;
+            uint32_t *indirect = (uint32_t *)buf2;
+            for (uint32_t j = 0; j < PTRS_PER_BLOCK && bytes_left > 0; ++j) // Lê os blocos indiretos simples dentro do indireto duplo
+            {
+                uint32_t to_read = (bytes_left > EXT2_BLOCK_SIZE) ? EXT2_BLOCK_SIZE : bytes_left; // Tamanho a ser lido
+                // Lê o bloco indireto simples
+                if (dump_blk(fs, indirect[j], to_read) < 0)
+                    return -1;
+                bytes_left -= to_read; // Atualiza o número de bytes restantes
             }
         }
     }
 
-    return result;
+    return 0;
 }
 
 /**

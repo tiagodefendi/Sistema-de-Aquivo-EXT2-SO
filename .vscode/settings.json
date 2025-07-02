@@ -1,6 +1,10 @@
 {
     "files.associations": {
-        "ext2_utils.h": "c",
-        "rm.h": "c"
-    }
+        "commands.h": "c",
+        "utils.h": "c",
+        "ext2.h": "c",
+        "fcntl.h": "c",
+        "alloc.h": "c"
+    },
+    "C_Cpp.errorSquiggles": "disabled"
 }

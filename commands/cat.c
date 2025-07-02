@@ -5,18 +5,49 @@
 #include <unistd.h>
 #include "commands.h"
 
-/**
- * @brief   Despeja o conteúdo de um arquivo regular para a saída padrão.
+/** * @brief   Lê um bloco do sistema de arquivos EXT2 e escreve seu conteúdo no stdout.
  *
- * Esta função lê os blocos de dados do inode do arquivo e escreve seu conteúdo na saída padrão.
- * Suporta blocos diretos e um bloco indireto.
+ * Se o número do bloco for zero, escreve zeros. Caso contrário,
+ * lê o bloco do sistema de arquivos e escreve seu conteúdo.
  *
- * @param fs     Ponteiro para a estrutura do sistema de arquivos EXT2.
- * @param inode  Ponteiro para o inode do arquivo a ser lido.
+ * @param fs    Ponteiro para a estrutura do sistema de arquivos EXT2.
+ * @param blk   Número do bloco a ser lido (0 para bloco vazio).
+ * @param nbytes Número de bytes a serem escritos.
  *
- * @return Retorna 0 em caso de sucesso, ou -1 em caso de erro (por exemplo, se ocorrer falha na leitura).
+ * @return Retorna 0 em caso de sucesso, ou -1 em caso de erro.
  */
-static int dump_file(ext2_fs_t *fs, struct ext2_inode *inode)
+int dump_blk(ext2_fs_t *fs, uint32_t blk, uint32_t nbytes)
+{
+    static uint8_t zbuf[EXT2_BLOCK_SIZE] = {0}; // Buffer de zeros para blocos vazios
+    uint8_t buf[EXT2_BLOCK_SIZE]; // Buffer para leitura do bloco
+
+    const void *src = zbuf;
+    if (blk)
+    {
+        if (fs_read_block(fs, blk, buf) < 0) // Lê o bloco do sistema de arquivos
+            return -1;
+        src = buf;
+    }
+    size_t written = fwrite(src, 1, nbytes, stdout); // Escreve o conteúdo
+    if (written != nbytes)
+    {
+        return -1;
+    }
+    return 0;
+}
+
+/**
+ * @brief   Lê o conteúdo de um arquivo regular do sistema de arquivos EXT2 e o escreve no stdout.
+ *
+ * Lê os blocos do inode do arquivo e escreve seu conteúdo no stdout.
+ * Suporta blocos diretos, indiretos simples e indiretos duplos.
+ *
+ * @param fs   Ponteiro para a estrutura do sistema de arquivos EXT2.
+ * @param in   Ponteiro para o inode do arquivo a ser lido.
+ *
+ * @return Retorna 0 em caso de sucesso, ou -1 em caso de erro.
+ */
+int dump_file(ext2_fs_t *fs, const struct ext2_inode *in)
 {
     uint32_t bytes_left = inode->i_size;
     int result = 0;
@@ -130,15 +161,15 @@ static int dump_file(ext2_fs_t *fs, struct ext2_inode *inode)
 }
 
 /**
- * @brief   Comando para exibir o conteúdo de um arquivo regular.
+ * @brief   Comando 'cat' para exibir o conteúdo de um arquivo regular no sistema de arquivos EXT2.
  *
- * Este comando recebe o nome de um arquivo e exibe seu conteúdo na saída padrão.
- * Se o arquivo não for regular, retorna um erro.
+ * Este comando recebe o nome de um arquivo e exibe seu conteúdo no stdout.
+ * Se o arquivo não for encontrado ou não for um arquivo regular, exibe uma mensagem de erro.
  *
- * @param argc  Número de argumentos passados para o comando.
- * @param argv  Array de strings contendo os argumentos do comando.
- * @param fs    Ponteiro para a estrutura do sistema de arquivos EXT2.
- * @param cwd   Ponteiro para o inode do diretório atual.
+ * @param argc Número de argumentos passados para o comando.
+ * @param argv Array de strings contendo os argumentos do comando.
+ * @param fs   Ponteiro para a estrutura do sistema de arquivos EXT2.
+ * @param cwd  Ponteiro para o inode do diretório atual.
  *
  * @return Retorna 0 em caso de sucesso, ou -1 em caso de erro.
  */
@@ -151,39 +182,34 @@ int cmd_cat(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         return -1;
     }
 
-    // Monta o caminho absoluto do arquivo
-    char *caminho_completo = fs_join_path(fs, *cwd, argv[1]);
-    if (!caminho_completo)
+    char *abs = fs_join_path(fs, *cwd, argv[1]); // Resolve o caminho absoluto do arquivo
+    if (!abs)
         return -1;
 
-    // Resolve o caminho para obter o número do inode
-    uint32_t inode_num;
-    if (fs_path_resolve(fs, caminho_completo, &inode_num) < 0)
+    uint32_t ino;
+    if (fs_path_resolve(fs, abs, &ino) < 0) // Resolve o inode do arquivo
     {
-        free(caminho_completo);
+        free(abs);
         return -1;
     }
 
-    // Lê o inode do arquivo
-    struct ext2_inode inode;
-    if (fs_read_inode(fs, inode_num, &inode) < 0)
+    struct ext2_inode in;
+    if (fs_read_inode(fs, ino, &in) < 0) // Lê o inode do arquivo
     {
-        free(caminho_completo);
+        free(abs);
         return -1;
     }
+    free(abs);
 
-    // Verifica se é um arquivo regular
-    if (!ext2_is_reg(&inode))
+    if (!ext2_is_reg(&in)) // Verifica se o inode é um arquivo regular
     {
-        fprintf(stderr, "%s: não é um arquivo regular\n", argv[1]);
-        free(caminho_completo);
         errno = EISDIR;
+        fprintf(stderr, "%s: não é arquivo regular\n", argv[1]);
         return -1;
     }
 
-    // Exibe o conteúdo do arquivo
-    int resultado = dump_file(fs, &inode);
+    if (dump_file(fs, &in) < 0) // Lê o conteúdo do arquivo e escreve no stdout
+        return -1;
     putchar('\n');
-    free(caminho_completo);
-    return resultado;
+    return 0;
 }

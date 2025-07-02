@@ -12,12 +12,13 @@
  *          Eduardo Riki Matushita
  *          Rafaela Tieri Iwamoto Ferreira
  *          Tiago Defendi da Silva
- * 
+ *
  * @date    01/07/2025
  */
 
 #define EXT2_SUPER_MAGIC 0xEF53 // Assinatura do superbloco
 #define EXT2_BLOCK_SIZE 1024    // Bloco fixo: 1 KiB
+#define PTRS_PER_BLOCK 256      // 1024 / 4
 #define EXT2_N_BLOCKS 15        // 12 + 1 + 1 + 1
 #define EXT2_NAME_LEN 255       // Tamanho máximo de nome de arquivo
 
@@ -53,8 +54,8 @@
 #define EXT2_FT_SYMLINK 7
 
 // Inodes reservados
-#define EXT2_BAD_INO         1
-#define EXT2_ROOT_INO        2
+#define EXT2_BAD_INO 1
+#define EXT2_ROOT_INO 2
 
 /* --------------- Estruturas --------------- */
 

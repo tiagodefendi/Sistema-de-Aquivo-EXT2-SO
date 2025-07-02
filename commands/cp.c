@@ -7,8 +7,6 @@
 #include <sys/stat.h>
 #include "commands.h"
 
-#define PTRS_PER_BLOCK 256 /* 1024 / 4 */
-
 /**
  * @brief   Escreve um bloco de dados no arquivo destino.
  *

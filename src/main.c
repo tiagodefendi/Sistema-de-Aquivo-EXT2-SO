@@ -16,7 +16,7 @@
  *          Eduardo Riki Matushita
  *          Rafaela Tieri Iwamoto Ferreira
  *          Tiago Defendi da Silva
- * 
+ *
  * @date    01/07/2025
  */
 
@@ -24,22 +24,53 @@
 #define MAX_BUFFER_SHELL 1024
 
 /**
- * @brief   Tokeniza uma string de entrada em argumentos separados.
+ * @brief   Tokeniza uma linha de comando em argumentos.
  *
- * Esta função divide a string de entrada `line` em tokens com base em caracteres de espaço,
- * tabulação ou nova linha, armazenando ponteiros para cada token no array `argv`.
- * O último elemento de `argv` é definido como NULL para marcar o fim dos argumentos.
+ * Esta função divide uma linha de comando em tokens, considerando espaços,
+ * tabulações e novas linhas como delimitadores. Suporta tokens entre aspas.
  *
- * @param   line String de entrada a ser tokenizada.
- * @param   argv Array onde os tokens serão armazenados.
- *
- * @return  O número de tokens encontrados e armazenados em `argv`.
+ * @param line Linha de comando a ser tokenizada.
+ * @param argv Array onde os tokens serão armazenados.
+ * 
+ * @return Número de tokens encontrados.
  */
 int tokenize(char *line, char **argv)
 {
     int argc = 0;
-    for (char *tok = strtok(line, " \t\n"); tok && argc < MAX_TOKENS - 1; tok = strtok(NULL, " \t\n"))
-        argv[argc++] = tok;
+    char *p = line;
+
+    while (*p)
+    {
+        // Pula espaços fora de aspas
+        while (*p == ' ' || *p == '\t' || *p == '\n')
+            ++p;
+        if (!*p)
+            break;
+
+        // início do token
+        char *token = p;
+        char quote = 0;
+
+        if (*p == '\"' || *p == '\'')
+        { // Token entre aspas
+            quote = *p++;
+            token = p; // Conteúdo sem aspas
+            while (*p && *p != quote)
+                ++p;
+        }
+        else
+        { // Token sem aspas
+            while (*p && *p != ' ' && *p != '\t' && *p != '\n')
+                ++p;
+        }
+
+        if (*p)
+            *p++ = '\0'; /* Termina token */
+
+        argv[argc++] = token;
+        if (argc >= MAX_TOKENS - 1)
+            break; // Evita overflow
+    }
     argv[argc] = NULL;
     return argc;
 }

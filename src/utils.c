@@ -8,9 +8,6 @@
 
 #include "utils.h"
 
-#define BIT_BYTE(b) ((b) >> 3)
-#define BIT_MASK(b) (1U << ((b) & 7))
-
 /**
  * @brief   Abre uma imagem de sistema de arquivos EXT2.
  *
@@ -203,7 +200,7 @@ int fs_write_group_desc(ext2_fs_t *fs, uint32_t group, struct ext2_group_desc *g
  *
  * @return Retorna 0 em caso de sucesso, -1 em caso de erro (por exemplo, se 'ino' for inválido).
  */
-static int inode_loc(ext2_fs_t *fs, uint32_t ino, struct ext2_group_desc *gd_out, off_t *off)
+int inode_loc(ext2_fs_t *fs, uint32_t ino, struct ext2_group_desc *gd_out, off_t *off)
 {
     if (ino == 0)
     {

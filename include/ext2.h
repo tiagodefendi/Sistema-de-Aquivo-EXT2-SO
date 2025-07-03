@@ -57,6 +57,10 @@
 #define EXT2_BAD_INO 1
 #define EXT2_ROOT_INO 2
 
+// Número máximo de blocos diretos em um inode
+#define BIT_BYTE(b) ((b) >> 3)
+#define BIT_MASK(b) (1U << ((b) & 7))
+
 /* --------------- Estruturas --------------- */
 
 struct ext2_super_block // Superbloco

@@ -39,6 +39,7 @@ int fs_read_group_desc(ext2_fs_t *fs, uint32_t group, struct ext2_group_desc *gd
 int fs_write_group_desc(ext2_fs_t *fs, uint32_t group, struct ext2_group_desc *gd);
 
 /* --------------- Inodes --------------- */
+int inode_loc(ext2_fs_t *fs, uint32_t ino, struct ext2_group_desc *gd_out, off_t *off);
 int fs_read_inode(ext2_fs_t *fs, uint32_t ino, struct ext2_inode *inode);
 int fs_write_inode(ext2_fs_t *fs, uint32_t ino, struct ext2_inode *inode);
 int fs_alloc_inode(ext2_fs_t *fs, uint16_t mode, uint32_t *out_ino);

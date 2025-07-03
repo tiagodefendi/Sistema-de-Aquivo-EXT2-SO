@@ -20,9 +20,8 @@
 static int find_entry_by_ino(ext2_fs_t *fs, struct ext2_inode *dir_inode, uint32_t tgt_ino, struct ext2_dir_entry *out)
 {
     uint8_t buf[EXT2_BLOCK_SIZE];
-
-    // Percorre os blocos diretos do diretório
-    for (int i = 0; i < 12; ++i)
+    
+    for (int i = 0; i < 12; ++i) // Percorre os blocos diretos do diretório
     {
         uint32_t bloco = dir_inode->i_block[i];
         if (!bloco)
@@ -41,8 +40,7 @@ static int find_entry_by_ino(ext2_fs_t *fs, struct ext2_inode *dir_inode, uint32
             if (entry->inode == tgt_ino)
             {
                 memcpy(out, entry, sizeof(struct ext2_dir_entry));
-                // Copia o nome separadamente, respeitando o tamanho
-                size_t name_len = entry->name_len < 255 ? entry->name_len : 255;
+                size_t name_len = entry->name_len < 255 ? entry->name_len : 255; // Copia o nome separadamente, respeitando o tamanho
                 memcpy(out->name, entry->name, name_len);
                 out->name[name_len] = '\0'; // Garante terminação
                 return 0;
@@ -106,11 +104,32 @@ int cmd_cd(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         return -1;
     }
 
-    struct ext2_dir_entry entry;
-    if (find_entry_by_ino(fs, &dir_inode, dir_ino, &entry) == 0)
+    // Novo trecho: buscar o nome no diretório pai
+    char *parent_path = strdup(abs_path);
+    char *last_slash = strrchr(parent_path, '/');
+    if (last_slash && last_slash != parent_path)
     {
-        print_entry(&entry); // Imprime a entrada encontrada
+        *last_slash = '\0';
     }
+    else
+    {
+        strcpy(parent_path, "/");
+    }
+
+    uint32_t parent_ino;
+    if (fs_path_resolve(fs, parent_path, &parent_ino) == 0)
+    {
+        struct ext2_inode parent_inode;
+        if (fs_read_inode(fs, parent_ino, &parent_inode) == 0)
+        {
+            struct ext2_dir_entry entry;
+            if (find_entry_by_ino(fs, &parent_inode, dir_ino, &entry) == 0)
+            {
+                print_entry(&entry); // Agora imprime o nome correto
+            }
+        }
+    }
+    free(parent_path);
 
     // Atualiza o diretório corrente
     *cwd = dir_ino;

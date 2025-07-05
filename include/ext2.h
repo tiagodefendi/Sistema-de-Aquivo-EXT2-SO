@@ -65,98 +65,109 @@
 
 struct ext2_super_block // Superbloco
 {
-    uint32_t s_inodes_count;
-    uint32_t s_blocks_count;
-    uint32_t s_r_blocks_count;
-    uint32_t s_free_blocks_count;
-    uint32_t s_free_inodes_count;
-    uint32_t s_first_data_block;
-    uint32_t s_log_block_size;
-    uint32_t s_log_frag_size;
-    uint32_t s_blocks_per_group;
-    uint32_t s_frags_per_group;
-    uint32_t s_inodes_per_group;
-    uint32_t s_mtime;
-    uint32_t s_wtime;
-    uint16_t s_mnt_count;
-    uint16_t s_max_mnt_count;
-    uint16_t s_magic;
-    uint16_t s_state;
-    uint16_t s_errors;
-    uint16_t s_minor_rev_level;
-    uint32_t s_lastcheck;
-    uint32_t s_checkinterval;
-    uint32_t s_creator_os;
-    uint32_t s_rev_level;
-    uint16_t s_def_resuid;
-    uint16_t s_def_resgid;
-    uint32_t s_first_ino;
-    uint16_t s_inode_size;
-    uint16_t s_block_group_nr;
-    uint32_t s_feature_compat;
-    uint32_t s_feature_incompat;
-    uint32_t s_feature_ro_compat;
-    uint8_t s_uuid[16];
-    char s_volume_name[16];
-    char s_last_mounted[64];
-    uint32_t s_algo_bitmap;
-    uint8_t s_prealloc_blocks;
-    uint8_t s_prealloc_dir_blocks;
-    uint16_t s_alignment;
-    uint8_t s_journal_uuid[16];
-    uint32_t s_journal_inum;
-    uint32_t s_journal_dev;
-    uint32_t s_last_orphan;
-    uint32_t s_hash_seed[4];
-    uint8_t s_def_hash_version;
-    uint8_t s_reserved_char_pad;
-    uint16_t s_reserved_word_pad;
-    uint32_t s_default_mount_options;
-    uint32_t s_first_meta_bg;
-    uint8_t s_reserved[760];
+    /* 0 */ uint32_t s_inodes_count;       // Número total de inodes
+    /* 4 */ uint32_t s_blocks_count;       // Número total de blocos
+    /* 8 */ uint32_t s_r_blocks_count;     // Blocos reservados para root
+    /* 12 */ uint32_t s_free_blocks_count; // Blocos livres
+    /* 16 */ uint32_t s_free_inodes_count; // Inodes livres
+    /* 20 */ uint32_t s_first_data_block;  // Primeiro bloco de dados
+    /* 24 */ uint32_t s_log_block_size;    // log2(tamanho do bloco) - 10
+    /* 28 */ uint32_t s_log_frag_size;     // log2(tamanho do fragmento) - 10
+    /* 32 */ uint32_t s_blocks_per_group;  // Blocos por grupo
+    /* 36 */ uint32_t s_frags_per_group;   // Fragmentos por grupo
+    /* 40 */ uint32_t s_inodes_per_group;  // Inodes por grupo
+    /* 44 */ uint32_t s_mtime;             // Hora do último mount
+    /* 48 */ uint32_t s_wtime;             // Hora do último write
+    /* 52 */ uint16_t s_mnt_count;         // Contador de montagens desde o último fsck
+    /* 54 */ uint16_t s_max_mnt_count;     // Máximo de montagens antes do fsck
+    /* 56 */ uint16_t s_magic;             // Número mágico (0xEF53)
+    /* 58 */ uint16_t s_state;             // Estado do sistema de arquivos
+    /* 60 */ uint16_t s_errors;            // Comportamento em caso de erro
+    /* 62 */ uint16_t s_minor_rev_level;   // Versão menor
+    /* 64 */ uint32_t s_lastcheck;         // Última verificação (fsck)
+    /* 68 */ uint32_t s_checkinterval;     // Intervalo entre verificações
+    /* 72 */ uint32_t s_creator_os;        // Sistema operacional criador
+    /* 76 */ uint32_t s_rev_level;         // Nível de revisão
+    /* 80 */ uint16_t s_def_resuid;        // UID padrão para arquivos reservados
+    /* 82 */ uint16_t s_def_resgid;        // GID padrão para arquivos reservados
+
+    // -- EXT2_DYNAMIC_REV Specific --
+    /* 84 */ uint32_t s_first_ino;          // Primeiro inode utilizável
+    /* 88 */ uint16_t s_inode_size;         // Tamanho do inode (em bytes)
+    /* 90 */ uint16_t s_block_group_nr;     // Número do grupo de blocos para este superbloco
+    /* 92 */ uint32_t s_feature_compat;     // Recursos compatíveis
+    /* 96 */ uint32_t s_feature_incompat;   // Recursos incompatíveis
+    /* 100 */ uint32_t s_feature_ro_compat; // Recursos somente-leitura compatíveis
+    /* 104 */ uint8_t s_uuid[16];           // UUID do volume
+    /* 120 */ char s_volume_name[16];       // Nome do volume
+    /* 136 */ char s_last_mounted[64];      // Caminho onde foi montado pela última vez
+    /* 200 */ uint32_t s_algo_bitmap;       // Algoritmo de bitmap usado
+
+    // -- Performance hints --
+    /* 204 */ uint8_t s_prealloc_blocks;     // Blocos prealocados para arquivos
+    /* 205 */ uint8_t s_prealloc_dir_blocks; // Blocos prealocados para diretórios
+    /* 206 */ uint16_t s_alignment;          // Alinhamento de bloco (não oficial, usado em algumas distros)
+
+    // -- Journaling support --
+    /* 208 */ uint8_t s_journal_uuid[16]; // UUID do dispositivo de journal
+    /* 224 */ uint32_t s_journal_inum;    // Inode do journal
+    /* 228 */ uint32_t s_journal_dev;     // Número do dispositivo do journal
+    /* 232 */ uint32_t s_last_orphan;     // Início da lista de inodes órfãos
+
+    // -- Directory Indexing Support --
+    /* 236 */ uint32_t s_hash_seed[4];    // Sementes para hash de diretório
+    /* 252 */ uint8_t s_def_hash_version; // Versão padrão do hash
+    /* 253 */ uint8_t s_pad[3];           // Preenchimento / reservado
+
+    // -- Outras opções --
+    /* 256 */ uint32_t s_default_mount_options; // Opções padrão de montagem
+    /* 260 */ uint32_t s_first_meta_bg;         // Primeiro grupo de blocos de metadados
+
+    // -- Reservado para futuras versões --
+    /* 264 */ uint8_t s_reserved[760]; // Reservado
 } __attribute__((packed));
 
 struct ext2_group_desc // Descritor de grupo de blocos
 {
-    uint32_t bg_block_bitmap;
-    uint32_t bg_inode_bitmap;
-    uint32_t bg_inode_table;
-    uint16_t bg_free_blocks_count;
-    uint16_t bg_free_inodes_count;
-    uint16_t bg_used_dirs_count;
-    uint16_t bg_pad;
-    uint8_t bg_reserved[12];
+    /*  0 */ uint32_t bg_block_bitmap;      // Bloco onde começa o mapa de blocos
+    /*  4 */ uint32_t bg_inode_bitmap;      // Bloco onde começa o mapa de inodes
+    /*  8 */ uint32_t bg_inode_table;       // Bloco onde começa a tabela de inodes
+    /* 12 */ uint16_t bg_free_blocks_count; // Número de blocos livres no grupo
+    /* 14 */ uint16_t bg_free_inodes_count; // Número de inodes livres no grupo
+    /* 16 */ uint16_t bg_used_dirs_count;   // Número de diretórios usados no grupo
+    /* 18 */ uint16_t bg_pad;               // Preenchimento para alinhamento
+    /* 20 */ uint8_t bg_reserved[12];       // Reservado para uso futuro
 } __attribute__((packed));
 
 struct ext2_inode // Inode (estrutura de arquivo)
 {
-    uint16_t i_mode;
-    uint16_t i_uid;
-    uint32_t i_size;
-    uint32_t i_atime;
-    uint32_t i_ctime;
-    uint32_t i_mtime;
-    uint32_t i_dtime;
-    uint16_t i_gid;
-    uint16_t i_links_count;
-    uint32_t i_blocks;
-    uint32_t i_flags;
-    uint32_t i_osd1;
-    uint32_t i_block[EXT2_N_BLOCKS];
-    uint32_t i_generation;
-    uint32_t i_file_acl;
-    uint32_t i_dir_acl;
-    uint32_t i_faddr;
-    uint8_t i_osd2[12];
+    /*   0 */ uint16_t i_mode;        // Tipo e permissões do arquivo
+    /*   2 */ uint16_t i_uid;         // UID do proprietário
+    /*   4 */ uint32_t i_size;        // Tamanho do arquivo em bytes
+    /*   8 */ uint32_t i_atime;       // Hora de último acesso
+    /*  12 */ uint32_t i_ctime;       // Hora de criação
+    /*  16 */ uint32_t i_mtime;       // Hora de modificação
+    /*  20 */ uint32_t i_dtime;       // Hora de exclusão
+    /*  24 */ uint16_t i_gid;         // GID do grupo
+    /*  26 */ uint16_t i_links_count; // Número de links (entradas de diretório)
+    /*  28 */ uint32_t i_blocks;      // Número de blocos alocados (em setores de 512 bytes)
+    /*  32 */ uint32_t i_flags;       // Flags de comportamento
+    /*  36 */ uint32_t i_osd1;        // Campo específico do sistema operacional
+    /*  40 */ uint32_t i_block[15];   // Ponteiros para blocos de dados (diretos, indiretos, etc.)
+    /* 100 */ uint32_t i_generation;  // Número da geração (para NFS)
+    /* 104 */ uint32_t i_file_acl;    // Bloco de ACL do arquivo (ou bloco de dados grande no ext2)
+    /* 108 */ uint32_t i_dir_acl;     // Tamanho alto do arquivo se for diretório (EXT2_DYNAMIC_REV)
+    /* 112 */ uint32_t i_faddr;       // Endereço do fragmento (não usado no ext2)
+    /* 116 */ uint8_t i_osd2[12];     // Campos adicionais específicos do sistema operacional
 } __attribute__((packed));
 
 struct ext2_dir_entry // Entrada de diretório
 {
-    uint32_t inode;
-    uint16_t rec_len;
-    uint8_t name_len;
-    uint8_t file_type;
-    char name[EXT2_NAME_LEN];
+    /*   0 */ uint32_t inode;           // Número do inode apontado pela entrada
+    /*   4 */ uint16_t rec_len;         // Comprimento total desta entrada de diretório
+    /*   6 */ uint8_t name_len;         // Comprimento do nome do arquivo
+    /*   7 */ uint8_t file_type;        // Tipo de arquivo (apenas se EXT2_FEATURE_INCOMPAT_FILETYPE)
+    /*   8 */ char name[EXT2_NAME_LEN]; // Nome do arquivo (não nulo, não terminado com '\0')
 } __attribute__((packed));
 
 /* --------------- Macros utilitárias --------------- */

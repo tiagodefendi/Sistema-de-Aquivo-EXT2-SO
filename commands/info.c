@@ -1,10 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/types.h>
 #include <stdint.h>
-#include <errno.h>
+
 #include "commands.h"
 
 /**
@@ -22,38 +20,37 @@
  */
 int cmd_info(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
 {
-    (void)argv;
-    (void)cwd; // Diretório corrente não utilizado
+    (void)argv; // Argumentos não utilizados
+    (void)cwd;  // Diretório corrente não utilizado
 
-    if (argc != 1) {
-        fprintf(stderr, "Uso: info\n");
-        errno = EINVAL;
+    if (argc != 1) // Verifica se o número de argumentos é válido
+    {
+        print_error(ERROR_INVALID_SYNTAX);
         return EXIT_FAILURE;
     }
 
-    // Volume name pode não ser NUL-terminated
-    char volume_name[17] = {0};
-    memcpy(volume_name, fs->sb.s_volume_name, 16);
+    char volume_name[17] = {0};                    // Volume name pode não ser NUL-terminated
+    memcpy(volume_name, fs->sb.s_volume_name, 16); // Copia o nome do volume do superbloco
 
-    // Obtém o tamanho total da imagem
-    off_t image_size = lseek(fs->fd, 0, SEEK_END);
-    if (image_size < 0) {
-        perror("Erro ao obter tamanho da imagem");
+    off_t image_size = lseek(fs->fd, 0, SEEK_END); // Obtém o tamanho total da imagem
+    if (image_size < 0)                            // Verifica se houve erro ao ler o tamanho da imagem
+    {
+        print_error(ERROR_UNKNOWN);
         return EXIT_FAILURE;
     }
 
-    uint32_t free_blocks = fs->sb.s_free_blocks_count;
-    uint32_t free_inodes = fs->sb.s_free_inodes_count;
-    uint32_t block_size = EXT2_BLOCK_SIZE; // Fixo em 1 KiB neste projeto
-    uint32_t inode_size = fs->sb.s_inode_size; // 128 B
-    uint32_t group_count = fs->groups_count;
-    uint32_t blocks_per_group = fs->sb.s_blocks_per_group;
-    uint32_t inodes_per_group = fs->sb.s_inodes_per_group;
-    uint32_t inodetable_blocks = (inodes_per_group * inode_size + block_size - 1) / block_size;
+    uint32_t free_blocks = fs->sb.s_free_blocks_count;                                          // Contagem de blocos livres
+    uint32_t free_inodes = fs->sb.s_free_inodes_count;                                          // Contagem de inodes livres
+    uint32_t block_size = EXT2_BLOCK_SIZE;                                                      // Fixo em 1 KiB neste projeto
+    uint32_t inode_size = fs->sb.s_inode_size;                                                  // 128 B
+    uint32_t group_count = fs->groups_count;                                                    // Número de grupos de blocos
+    uint32_t blocks_per_group = fs->sb.s_blocks_per_group;                                      // Contagem de blocos por grupo
+    uint32_t inodes_per_group = fs->sb.s_inodes_per_group;                                      // Contagem de inodes por grupo
+    uint32_t inodetable_blocks = (inodes_per_group * inode_size + block_size - 1) / block_size; // Tamanho da tabela de inodes em blocos
 
     printf("Nome do volume........: %s\n", volume_name[0] ? volume_name : "<sem nome>");
     printf("Tamanho da imagem.....: %lld bytes\n", (long long)image_size);
-    printf("Espaço livre..........: %u KiB\n", free_blocks * block_size / 1024);
+    printf("Espaço livre..........: %u KiB\n", ((free_blocks - fs->sb.s_r_blocks_count) * block_size) / 1024);
     printf("Inodes livres.........: %u\n", free_inodes);
     printf("Blocos livres.........: %u\n", free_blocks);
     printf("Tamanho do bloco......: %u bytes\n", block_size);

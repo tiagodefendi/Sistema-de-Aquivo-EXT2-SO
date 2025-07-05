@@ -261,13 +261,13 @@ int cmd_cp(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     if (argc != 3) // Verifica se o número de argumentos é válido
     {
         print_error(ERROR_INVALID_SYNTAX);
-        return 1;
+        return EXIT_FAILURE;
     }
 
     if (argv[2][0] != '/') // Destino deve ser caminho absoluto do sistema real
     {
         print_error(ERROR_INVALID_SYNTAX);
-        return 1;
+        return EXIT_FAILURE;
     }
 
     char *src_path = NULL;                                          // Caminho absoluto do arquivo de origem

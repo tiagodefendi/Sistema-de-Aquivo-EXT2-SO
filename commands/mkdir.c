@@ -34,7 +34,10 @@ static int dir_add_entry(ext2_fs_t *fs, struct ext2_inode *dir_inode, uint32_t d
         if (!bloco)
         {
             if (fs_alloc_block(fs, &bloco) < 0)
-                return -1;
+            {
+                print_error(ERROR_UNKNOWN);
+                return EXIT_FAILURE;
+            }
             dir_inode->i_block[i] = bloco;
             dir_inode->i_size += EXT2_BLOCK_SIZE;
             dir_inode->i_blocks += EXT2_BLOCK_SIZE / 512;
@@ -49,14 +52,23 @@ static int dir_add_entry(ext2_fs_t *fs, struct ext2_inode *dir_inode, uint32_t d
             memcpy(entrada->name, name, entrada->name_len); // Copia o nome para a entrada
 
             if (fs_write_block(fs, bloco, buf) < 0) // Escreve o bloco no disco
-                return -1;
+            {
+                print_error(ERROR_UNKNOWN);
+                return EXIT_FAILURE;
+            }
             if (fs_write_inode(fs, dir_ino, dir_inode) < 0) // Atualiza o inode do diretório
-                return -1;
-            return 0;
+            {
+                print_error(ERROR_UNKNOWN);
+                return EXIT_FAILURE;
+            }
+            return EXIT_SUCCESS;
         }
 
         if (fs_read_block(fs, bloco, buf) < 0) // Lê o bloco existente
-            return -1;
+        {
+            print_error(ERROR_UNKNOWN);
+            return EXIT_FAILURE;
+        }
 
         uint32_t pos = 0;
         // Percorre as entradas do bloco procurando espaço livre
@@ -81,10 +93,16 @@ static int dir_add_entry(ext2_fs_t *fs, struct ext2_inode *dir_inode, uint32_t d
                 memcpy(nova->name, name, nova->name_len); // Copia o nome para a nova entrada
 
                 if (fs_write_block(fs, bloco, buf) < 0) // Escreve o bloco no disco
-                    return -1;
+                {
+                    print_error(ERROR_UNKNOWN);
+                    return EXIT_FAILURE;
+                }
                 if (fs_write_inode(fs, dir_ino, dir_inode) < 0) // Atualiza o inode do diretório
-                    return -1;
-                return 0;
+                {
+                    print_error(ERROR_UNKNOWN);
+                    return EXIT_FAILURE;
+                }
+                return EXIT_SUCCESS;
             }
             pos += entrada->rec_len; // Avança para a próxima entrada
         }

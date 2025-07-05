@@ -100,20 +100,24 @@ int free_indirect_chain(ext2_fs_t *fs, uint32_t blk, int depth)
  */
 int free_inode_block(ext2_fs_t *fs, struct ext2_inode *ino)
 {
-    /* diretos ----------------------------------------------------------- */
+    // Libera blocos diretos
     for (int i = 0; i < 12; ++i)
         if (ino->i_block[i] && fs_free_blocks(fs, ino->i_block[i]) < 0)
             return -1;
 
-    /* indireto simples -------------------------------------------------- */
+    // Libera indireto simples
     if (free_indirect_chain(fs, ino->i_block[12], 1) < 0)
         return -1;
 
-    /* indireto duplo ---------------------------------------------------- */
+    // Libera indireto duplo
     if (free_indirect_chain(fs, ino->i_block[13], 2) < 0)
         return -1;
 
-    /* zera ponteiros + estatísticas do inode --------------------------- */
+    // Libera indireto triplo
+    if (free_indirect_chain(fs, ino->i_block[14], 3) < 0)
+        return -1;
+
+    // Zera os ponteiros e estatísticas do inode
     memset(ino->i_block, 0, sizeof(ino->i_block));
     ino->i_blocks = 0;
     ino->i_size = 0;
@@ -121,6 +125,7 @@ int free_inode_block(ext2_fs_t *fs, struct ext2_inode *ino)
 
     return 0;
 }
+
 
 /**
  * @brief   Remove uma entrada de diretório pelo número do inode.
@@ -148,6 +153,8 @@ int dir_remove_entry_rm(ext2_fs_t *fs, struct ext2_inode *dir_inode, uint32_t ta
             return -1;
 
         uint32_t off = 0;
+        struct ext2_dir_entry *prev = NULL;
+
         while (off < EXT2_BLOCK_SIZE)
         {
             struct ext2_dir_entry *e = (void *)(buf + off);
@@ -155,12 +162,25 @@ int dir_remove_entry_rm(ext2_fs_t *fs, struct ext2_inode *dir_inode, uint32_t ta
                 break;
 
             if (e->inode == target_ino)
-            { /* apaga */
-                e->inode = 0;
+            {
+                if (prev)
+                {
+                    // funde o espaço da entrada removida no rec_len da anterior
+                    prev->rec_len += e->rec_len;
+                }
+                else
+                {
+                    // se for a primeira entrada do bloco,
+                    // marcaremos ela como livre estendendo-a até o fim do bloco
+                    e->inode   = 0;
+                    e->rec_len = EXT2_BLOCK_SIZE;
+                }
+
                 if (fs_write_block(fs, bloco, buf) < 0)
                     return -1;
                 return 0;
             }
+            prev = e;
             off += e->rec_len;
         }
     }

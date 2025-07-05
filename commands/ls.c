@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
+
 #include "commands.h"
 
 /**
@@ -13,37 +13,40 @@
  * @param fs         Ponteiro para a estrutura do sistema de arquivos EXT2.
  * @param dir_inode  Ponteiro para o inode do diretório a ser listado.
  *
- * @return Retorna 0 em caso de sucesso, ou -1 em caso de erro.
+ * @return Retorna 0 em caso de sucesso, ou 1 em caso de erro.
  */
 static int list_directory(ext2_fs_t *fs, struct ext2_inode *dir_inode)
 {
-    uint8_t buf[EXT2_BLOCK_SIZE];
+    uint8_t buf[EXT2_BLOCK_SIZE]; // Buffer para armazenar os dados lidos do bloco
 
-    // Percorre os blocos diretos do inode do diretório
-    for (int i = 0; i < 12; ++i)
+    for (int i = 0; i < 12; ++i) // Percorre os blocos diretos do inode do diretório
     {
-        uint32_t bloco = dir_inode->i_block[i];
-        if (bloco == 0)
+        uint32_t bloco = dir_inode->i_block[i]; // Obtém o número do bloco
+        if (bloco == 0)                         // Se o bloco não estiver alocado, pula para o próximo
             continue;
 
-        if (fs_read_block(fs, bloco, buf) < 0)
-            return -1;
-
-        uint32_t offset = 0;
-        while (offset < EXT2_BLOCK_SIZE)
+        if (fs_read_block(fs, bloco, buf) < 0) // Lê o bloco do diretório
         {
-            struct ext2_dir_entry *entry = (struct ext2_dir_entry *)(buf + offset);
-            if (entry->rec_len == 0)
-                break; // Bloco corrompido
+            print_error(ERROR_UNKNOWN);
+            return EXIT_FAILURE;
+        }
 
-            if (entry->inode != 0)
+        uint32_t offset = 0;             // Inicializa o deslocamento para percorrer o bloco
+        while (offset < EXT2_BLOCK_SIZE) // Percorre o bloco até o final
+        {
+            struct ext2_dir_entry *entry = (struct ext2_dir_entry *)(buf + offset); // Obtém a entrada de diretório a partir do buffer
+
+            if (entry->rec_len == 0) // Se o comprimento do registro for zero, significa que a entrada está corrompida
+                break;
+
+            if (entry->inode != 0) // Se o inode da entrada for diferente de zero, imprime a entrada
             {
                 print_entry(entry);
             }
-            offset += entry->rec_len;
+            offset += entry->rec_len; // Atualiza o deslocamento para a próxima entrada
         }
     }
-    return 0;
+    return EXIT_SUCCESS;
 }
 
 /**
@@ -57,59 +60,56 @@ static int list_directory(ext2_fs_t *fs, struct ext2_inode *dir_inode)
  * @param fs    Ponteiro para a estrutura do sistema de arquivos EXT2.
  * @param cwd   Ponteiro para o inode do diretório corrente.
  *
- * @return Retorna 0 em caso de sucesso, ou -1 em caso de erro.
+ * @return Retorna 0 em caso de sucesso, ou 1 em caso de erro.
  */
 int cmd_ls(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
 {
-    if (argc > 2)
+    if (argc > 2) // Verifica se o número de argumentos é válido
     {
-        fprintf(stderr, "Uso: ls [caminho]\n");
-        errno = EINVAL;
-        return -1;
+        print_error(ERROR_INVALID_SYNTAX);
+        return EXIT_FAILURE;
     }
 
-    uint32_t alvo_inode;
-    char *caminho_completo = NULL;
+    uint32_t alvo_inode;           // Inode do alvo a ser listado
+    char *caminho_completo = NULL; // Caminho completo do alvo
 
-    // Se nenhum argumento, lista o diretório atual
-    if (argc == 1)
+    if (argc == 1) // Se nenhum argumento for fornecido, lista o diretório atual
     {
         alvo_inode = *cwd;
     }
-    else
+    else // Se um argumento for fornecido, resolve o caminho
     {
-        caminho_completo = fs_join_path(fs, *cwd, argv[1]);
-        if (!caminho_completo)
-            return -1;
-        if (fs_path_resolve(fs, caminho_completo, &alvo_inode) < 0)
+        caminho_completo = fs_join_path(fs, *cwd, argv[1]); // Junta o caminho atual com o argumento fornecido
+        if (!caminho_completo)                              // Verifica se a junção do caminho foi bem-sucedida
+        {
+            print_error(ERROR_UNKNOWN);
+            return EXIT_FAILURE;
+        }
+        if (fs_path_resolve(fs, caminho_completo, &alvo_inode) < 0) // Resolve o caminho para obter o inode correspondente
         {
             free(caminho_completo);
-            return -1;
+            print_error(ERROR_DIRECTORY_NOT_FOUND);
+            return EXIT_FAILURE;
         }
     }
 
-    struct ext2_inode inode;
-    if (fs_read_inode(fs, alvo_inode, &inode) < 0)
+    struct ext2_inode inode;                       // Estrutura para armazenar o inode do alvo
+    if (fs_read_inode(fs, alvo_inode, &inode) < 0) // Lê o inode do alvo
     {
         free(caminho_completo);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
-    int resultado;
-    if (ext2_is_dir(&inode))
+    int resultado;           // Variável para armazenar o resultado da listagem
+    if (ext2_is_dir(&inode)) // Verifica se o inode é um diretório
     {
         resultado = list_directory(fs, &inode);
     }
-    else
+    else // Se não for um diretório, imprime erro
     {
-        struct ext2_dir_entry entrada_fake = {
-            .inode = alvo_inode,
-            .rec_len = inode.i_blocks ? inode.i_blocks * 512 : 0,
-            .name_len = (uint8_t)strlen(argv[argc == 1 ? 0 : 1]),
-            .file_type = EXT2_FT_REG_FILE};
-        strncpy((char *)entrada_fake.name, argc == 1 ? "(arquivo)" : argv[1], entrada_fake.name_len);
-        print_entry(&entrada_fake);
-        resultado = 0;
+        print_error(ERROR_INVALID_SYNTAX);
+        resultado = EXIT_FAILURE;
     }
 
     free(caminho_completo);

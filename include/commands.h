@@ -2,6 +2,7 @@
 #define COMMANDS_H
 
 #include "utils.h"
+#include "errors.h"
 
 /**
  * @file    commands.h

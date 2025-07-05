@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include "commands.h"
+#include "errors.h"
 
 /**
  * @file    main.c
@@ -191,9 +192,7 @@ int main(int argc, char **argv)
             continue;
         }
 
-        // Verifica se o comando é válido
-        if (cmd->handler(argc_cmd, argvv, fs, &cwd))
-            print_errno(cmd->name);
+        cmd->handler(argc_cmd, argvv, fs, &cwd);
     }
 
     // Fecha o sistema de arquivos

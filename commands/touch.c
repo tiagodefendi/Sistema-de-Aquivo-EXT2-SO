@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
 #include <time.h>
+
 #include "commands.h"
 
 /**
@@ -22,22 +22,25 @@ int cmd_touch(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
 {
     if (argc != 2)
     {
-        fprintf(stderr, "Uso: touch <arquivo>\n");
-        errno = EINVAL;
-        return -1;
+        print_error(ERROR_INVALID_SYNTAX);
+        return EXIT_FAILURE;
     }
 
     // Monta o caminho absoluto do arquivo
     char *full_path = fs_join_path(fs, *cwd, argv[1]);
     if (!full_path)
-        return -1;
+    {
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
+    }
 
     // Se o arquivo já existe, não faz nada (poderia atualizar timestamps)
     uint32_t existing_inode;
     if (fs_path_resolve(fs, full_path, &existing_inode) == 0)
     {
         free(full_path);
-        return 0;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     // Separa caminho do diretório pai e nome do arquivo
@@ -64,7 +67,8 @@ int cmd_touch(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     if (!parent_path)
     {
         free(full_path);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     // Resolve inode do diretório pai
@@ -73,7 +77,8 @@ int cmd_touch(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     {
         free(full_path);
         free(parent_path);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     struct ext2_inode parent_inode;
@@ -81,14 +86,15 @@ int cmd_touch(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     {
         free(full_path);
         free(parent_path);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
     if (!ext2_is_dir(&parent_inode))
     {
-        errno = ENOTDIR;
         free(full_path);
         free(parent_path);
-        return -1;
+        print_error(ERROR_DIRECTORY_NOT_FOUND);
+        return EXIT_FAILURE;
     }
 
     // Aloca inode para o novo arquivo
@@ -97,7 +103,8 @@ int cmd_touch(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     {
         free(full_path);
         free(parent_path);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     struct ext2_inode new_inode = {0};
@@ -114,7 +121,8 @@ int cmd_touch(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     {
         free(full_path);
         free(parent_path);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     // Insere entrada no diretório pai
@@ -132,7 +140,8 @@ int cmd_touch(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
             {
                 free(full_path);
                 free(parent_path);
-                return -1;
+                print_error(ERROR_UNKNOWN);
+                return EXIT_FAILURE;
             }
             parent_inode.i_block[i] = block;
             parent_inode.i_size += EXT2_BLOCK_SIZE;
@@ -150,7 +159,8 @@ int cmd_touch(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
             {
                 free(full_path);
                 free(parent_path);
-                return -1;
+                print_error(ERROR_UNKNOWN);
+                return EXIT_FAILURE;
             }
             inserted = 1;
             break;
@@ -160,7 +170,8 @@ int cmd_touch(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         {
             free(full_path);
             free(parent_path);
-            return -1;
+            print_error(ERROR_UNKNOWN);
+            return EXIT_FAILURE;
         }
         uint32_t pos = 0;
         while (pos < EXT2_BLOCK_SIZE)
@@ -186,7 +197,8 @@ int cmd_touch(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
                 {
                     free(full_path);
                     free(parent_path);
-                    return -1;
+                    print_error(ERROR_UNKNOWN);
+                    return EXIT_FAILURE;
                 }
                 inserted = 1;
                 break;
@@ -197,18 +209,17 @@ int cmd_touch(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
 
     if (!inserted)
     {
-        fprintf(stderr, "touch: diretório cheio\n");
-        errno = ENOSPC;
         free(full_path);
         free(parent_path);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     // Atualiza inode do diretório pai
     fs_write_inode(fs, parent_inode_num, &parent_inode);
 
-    printf("Arquivo criado: %s (inode: %u)\n", file_name, new_inode_num);
+    printf("arquivo criado com inode %u.\n", new_inode_num);
     free(full_path);
     free(parent_path);
-    return 0;
+    return EXIT_SUCCESS;
 }

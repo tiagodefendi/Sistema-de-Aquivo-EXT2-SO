@@ -1,268 +1,290 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/stat.h>
-#include <libgen.h>
+
 #include "commands.h"
 
 /**
- * @brief   Escreve um bloco de dados no arquivo destino.
+ * @brief   Copia um arquivo do sistema de arquivos EXT2 para o sistema real.
  *
- * Se o número do bloco for zero, escreve zeros. Caso contrário,
- * lê o bloco do sistema de arquivos e escreve seu conteúdo.
+ * Esta função copia o conteúdo de um arquivo especificado pelo inode do EXT2
+ * para um arquivo no sistema real, preservando a estrutura de blocos do EXT2.
  *
- * @param fs    Ponteiro para a estrutura do sistema de arquivos EXT2.
- * @param blk   Número do bloco a ser lido (0 para bloco vazio).
- * @param fd    Descritor de arquivo do destino.
- * @param bytes Número de bytes a serem escritos.
+ * @param fs Ponteiro para a estrutura do sistema de arquivos EXT2.
+ * @param ino Número do inode do arquivo a ser copiado.
+ * @param dst Caminho completo do destino onde o arquivo será salvo.
  *
- * @return Retorna 0 em caso de sucesso, ou -1 em caso de erro.
+ * @return Retorna 0 em caso de sucesso, ou 1 em caso de erro.
  */
-static int dump_block(ext2_fs_t *fs, uint32_t blk, int fd, uint32_t bytes)
+int dump_block(ext2_fs_t *fs, uint32_t blk, FILE *fd, uint32_t bytes)
 {
-    static uint8_t zero_block[EXT2_BLOCK_SIZE] = {0};
-    uint8_t data_block[EXT2_BLOCK_SIZE];
-    const void *data = zero_block;
+    static unsigned char zero_block[EXT2_BLOCK_SIZE] = {0}; // Bloco de zeros para blocos não alocados
+    unsigned char data_block[EXT2_BLOCK_SIZE];              // Buffer para armazenar os dados do bloco lido
+    const void *data = zero_block;                          // Inicializa com bloco de zeros
 
-    if (blk != 0)
+    if (blk != 0) // Se o bloco não for zero (não alocado)
     {
-        if (fs_read_block(fs, blk, data_block) < 0)
-            return -1;
-        data = data_block;
+        if (fs_read_block(fs, blk, data_block) < 0) // Lê o bloco do sistema de arquivos
+        {
+            print_error(ERROR_UNKNOWN);
+            return EXIT_FAILURE;
+        }
+        data = data_block; // Usa o bloco lido como dados
     }
-
-    ssize_t written = write(fd, data, bytes);
-    return (written == (ssize_t)bytes) ? 0 : -1;
+    size_t written = fwrite(data, 1, bytes, fd);             // Escreve os dados no arquivo de destino
+    return (written == bytes) ? EXIT_SUCCESS : EXIT_FAILURE; // Retorna 0 se a escrita foi bem-sucedida, 1 se houve erro
 }
 
 /**
- * @brief   Copia o conteúdo de um arquivo regular do sistema de arquivos EXT2 para o host.
+ * @brief   Copia um arquivo do sistema de arquivos EXT2 para o sistema real.
  *
- * Lê os blocos do inode do arquivo e escreve seu conteúdo no arquivo destino.
- * Suporta blocos diretos, indiretos simples e indiretos duplos.
+ * Esta função copia o conteúdo de um arquivo especificado pelo inode do EXT2
+ * para um arquivo no sistema real, preservando a estrutura de blocos do EXT2.
  *
- * @param fs   Ponteiro para a estrutura do sistema de arquivos EXT2.
- * @param ino  Número do inode do arquivo a ser copiado.
- * @param dst  Caminho do arquivo destino no host.
+ * @param fs Ponteiro para a estrutura do sistema de arquivos EXT2.
+ * @param ino Número do inode do arquivo a ser copiado.
+ * @param dst Caminho completo do destino onde o arquivo será salvo.
  *
- * @return Retorna 0 em caso de sucesso, ou -1 em caso de erro.
+ * @return Retorna 0 em caso de sucesso, ou 1 em caso de erro.
  */
-static int copy_ext2_to_host(ext2_fs_t *fs, uint32_t ino, char *dst)
+int copy_ext2_to_host(ext2_fs_t *fs, uint32_t ino, const char *dst)
 {
-    struct ext2_inode in;
-    if (fs_read_inode(fs, ino, &in) < 0)
-        return -1;
-    if (!ext2_is_reg(&in))
+    struct ext2_inode in;                // Cria inode do arquivo
+    if (fs_read_inode(fs, ino, &in) < 0) // Lê o inode do arquivo
     {
-        errno = EISDIR;
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
-    int fd = open(dst, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0)
-        return -1;
-
-    uint32_t bytes_left = in.i_size; // <= 64 MiB
-    int result = 0;
-
-    // Blocos diretos (0‑11)
-    for (int i = 0; i < 12 && bytes_left; ++i)
+    if (!ext2_is_reg(&in)) // Verifica se é um arquivo regular
     {
-        uint32_t n = (bytes_left >= EXT2_BLOCK_SIZE) ? EXT2_BLOCK_SIZE : bytes_left; // Tamanho do bloco a ser escrito
-        if (dump_block(fs, in.i_block[i], fd, n) < 0)                                // Lê o bloco do inode e escreve no arquivo destino
+        print_error(ERROR_FILE_NOT_FOUND);
+        return EXIT_FAILURE;
+    }
+
+    FILE *fd = fopen(dst, "wb"); // Abre o arquivo de destino para escrita binária
+    if (!fd)                     // Verifica se o arquivo de destino existe e foi aberto corretamente
+    {
+        print_error(ERROR_DEST_DIR_NOT_EXISTS);
+        return EXIT_FAILURE;
+    }
+    uint32_t bytes_left = in.i_size; // Tamanho do arquivo a ser copiado
+    int result = 0;                  // Variável para armazenar o resultado da cópia
+
+    for (int i = 0; i < 12 && bytes_left; ++i) // Blocos diretos (0-11)
+    {
+        uint32_t n = (bytes_left >= EXT2_BLOCK_SIZE) ? EXT2_BLOCK_SIZE : bytes_left; // Tamanho do bloco a ser copiado
+        if (dump_block(fs, in.i_block[i], fd, n))                                    // Copia o bloco para o arquivo de destino
         {
-            result = -1;
+            print_error(ERROR_UNKNOWN);
+            result = EXIT_FAILURE;
             break;
         }
-        bytes_left -= n; // Reduz o número de bytes restantes
+        bytes_left -= n;
     }
 
-    // Bloco indireto simples (12)
-    if (result == 0 && bytes_left)
+    if (result == 0 && bytes_left) // Bloco indireto simples (12)
     {
-        uint8_t buf[EXT2_BLOCK_SIZE] = {0};
-        if (in.i_block[12])
+        unsigned char buf[EXT2_BLOCK_SIZE] = {0}; // Buffer para armazenar os blocos indiretos
+        if (in.i_block[12])                       // Verifica se o bloco indireto simples está alocado
         {
-            if (fs_read_block(fs, in.i_block[12], buf) < 0) // Lê o bloco indireto
-                result = -1;
-        }
-        if (result == 0)
-        {
-            uint32_t *tbl = (uint32_t *)buf;
-            for (uint32_t j = 0; j < PTRS_PER_BLOCK && bytes_left; ++j) // Percorre os ponteiros do bloco indireto
+            if (fs_read_block(fs, in.i_block[12], buf) < 0)
             {
-                uint32_t n = (bytes_left >= EXT2_BLOCK_SIZE) ? EXT2_BLOCK_SIZE : bytes_left; // Tamanho do bloco a ser escrito
-                uint32_t blk = in.i_block[12] ? tbl[j] : 0;                                  // Se não houver bloco indireto, usa 0
-                if (dump_block(fs, blk, fd, n) < 0)                                          // Lê o bloco do inode indireto e escreve no arquivo destino
+                print_error(ERROR_UNKNOWN);
+                result = EXIT_FAILURE;
+            }
+        }
+        if (result == 0) // Se não houve erro ao ler o bloco indireto simples
+        {
+            uint32_t *tbl = (uint32_t *)buf;                            // Converte o buffer para um ponteiro de tabela de blocos
+            for (uint32_t j = 0; j < PTRS_PER_BLOCK && bytes_left; ++j) // Percorre os ponteiros na tabela de blocos indiretos
+            {
+                uint32_t n = (bytes_left >= EXT2_BLOCK_SIZE) ? EXT2_BLOCK_SIZE : bytes_left; // Tamanho do bloco a ser copiado
+                uint32_t blk = in.i_block[12] ? tbl[j] : 0;                                  // Obtém o bloco a ser copiado
+
+                if (dump_block(fs, blk, fd, n)) // Copia o bloco para o arquivo de destino
                 {
-                    result = -1;
+                    print_error(ERROR_UNKNOWN);
+                    result = EXIT_FAILURE;
                     break;
                 }
-                bytes_left -= n; // Reduz o número de bytes restantes
+                bytes_left -= n; // Atualiza o tamanho restante do arquivo a ser copiado
             }
         }
     }
 
-    // Bloco indireto duplo (13)
-    if (result == 0 && bytes_left)
+    if (result == 0 && bytes_left) // Bloco indireto duplo (13)
     {
-        if (!in.i_block[13])
+        if (!in.i_block[13]) // Se não houver bloco indireto duplo, não há mais blocos a serem copiados
         {
-            errno = EIO;
-            result = -1;
+            print_error(ERROR_UNKNOWN);
+            result = EXIT_FAILURE;
         }
-        else
+        else // Se houver bloco indireto duplo, lê os blocos indiretos
         {
-            uint8_t buf1[EXT2_BLOCK_SIZE], buf2[EXT2_BLOCK_SIZE];
-            if (fs_read_block(fs, in.i_block[13], buf1) < 0)
+            unsigned char buf1[EXT2_BLOCK_SIZE], buf2[EXT2_BLOCK_SIZE]; // Buffers para armazenar os blocos indiretos
+            if (fs_read_block(fs, in.i_block[13], buf1) < 0)            // Lê o bloco indireto duplo
             {
-                result = -1;
+                print_error(ERROR_UNKNOWN);
+                result = EXIT_FAILURE;
             }
-            else
+            else // Se não houve erro ao ler o bloco indireto duplo
             {
-                uint32_t *lvl1 = (uint32_t *)buf1;
-                for (uint32_t i1 = 0; i1 < PTRS_PER_BLOCK && bytes_left && result == 0; ++i1) // Percorre os ponteiros do bloco indireto
+                uint32_t *lvl1 = (uint32_t *)buf1; // Converte o buffer para um ponteiro de tabela de blocos indiretos duplos
+
+                for (uint32_t i1 = 0; i1 < PTRS_PER_BLOCK && bytes_left && result == 0; ++i1) // Percorre os ponteiros na tabela de blocos indiretos duplos
                 {
                     uint32_t l2blk = lvl1[i1];
-                    if (l2blk && fs_read_block(fs, l2blk, buf2) < 0) // Lê o bloco indireto duplo
+                    if (l2blk && fs_read_block(fs, l2blk, buf2) < 0)
                     {
-                        result = -1;
+                        print_error(ERROR_UNKNOWN);
+                        result = EXIT_FAILURE;
                         break;
                     }
                     uint32_t *lvl2 = (uint32_t *)buf2;
-                    for (uint32_t i2 = 0; i2 < PTRS_PER_BLOCK && bytes_left && result == 0; ++i2) // Percorre os ponteiros do bloco indireto duplo
+                    for (uint32_t i2 = 0; i2 < PTRS_PER_BLOCK && bytes_left && result == 0; ++i2)
                     {
-                        uint32_t blk = l2blk ? lvl2[i2] : 0;                                         // Se não houver bloco indireto duplo, usa 0
-                        uint32_t n = (bytes_left >= EXT2_BLOCK_SIZE) ? EXT2_BLOCK_SIZE : bytes_left; // Tamanho do bloco a ser escrito
-                        if (dump_block(fs, blk, fd, n) < 0)
+                        uint32_t blk = l2blk ? lvl2[i2] : 0;
+                        uint32_t n = (bytes_left >= EXT2_BLOCK_SIZE) ? EXT2_BLOCK_SIZE : bytes_left;
+
+                        if (dump_block(fs, blk, fd, n)) // Copia o bloco para o arquivo de destino
                         {
-                            result = -1;
+                            print_error(ERROR_UNKNOWN);
+                            result = EXIT_FAILURE;
                             break;
                         }
-                        bytes_left -= n; // Reduz o número de bytes restantes
+                        bytes_left -= n; // Atualiza o tamanho restante do arquivo a ser copiado
                     }
                 }
             }
         }
     }
 
-    close(fd);
-    if (result < 0)
-        unlink(dst);
-    return result;
+    fclose(fd);
+    if (result) // Se houve erro durante a cópia, remove o arquivo de destino
+        remove(dst);
+    return result; // Retorna 0 se a cópia foi bem-sucedida, 1 se houve erro
 }
 
 /**
- * @brief   Resolve o caminho de um arquivo na imagem EXT2.
+ * @brief   Resolve o caminho absoluto de um arquivo ou diretório no sistema de arquivos EXT2.
  *
- * Se o caminho começar com '/', usa-o diretamente. Caso contrário, junta com o diretório atual.
- * Tenta resolver o caminho e retorna o inode correspondente.
+ * Esta função recebe um caminho relativo ou absoluto e resolve para um caminho absoluto,
+ * retornando o inode correspondente ao caminho resolvido.
  *
- * @param fs         Ponteiro para a estrutura do sistema de arquivos EXT2.
- * @param cwd        Inode do diretório atual.
- * @param arg        Caminho relativo ou absoluto do arquivo.
- * @param abs_out    Ponteiro para armazenar o caminho absoluto resolvido.
- * @param ino_out    Ponteiro para armazenar o inode do arquivo, se encontrado.
+ * @param fs Ponteiro para a estrutura do sistema de arquivos EXT2.
+ * @param cwd Inode do diretório corrente.
+ * @param arg Caminho relativo ou absoluto a ser resolvido.
+ * @param abs_out Ponteiro para armazenar o caminho absoluto resultante.
+ * @param ino_out Ponteiro para armazenar o inode correspondente ao caminho resolvido.
  *
- * @return Retorna 1 se o caminho foi resolvido com sucesso, 0 se não foi encontrado, ou -1 em caso de erro.
+ * @return Retorna 0 se o caminho foi resolvido com sucesso, ou 1 se houve erro.
  */
-static int resolve_image_path(ext2_fs_t *fs, uint32_t cwd, char *arg, char **abs_out, uint32_t *ino_out)
+int resolve_image_path(ext2_fs_t *fs, uint32_t cwd, const char *arg, char **abs_out, uint32_t *ino_out)
 {
-    // Se o caminho começa com '/', já é absoluto; senão, monta o caminho absoluto a partir do cwd
+    // Declara um ponteiro para armazenar o caminho absoluto
     char *abs_path;
-    if (arg[0] == '/')
-        abs_path = strdup(arg); // Caminho absoluto fornecido
-    else
-        abs_path = fs_join_path(fs, cwd, arg); // Caminho relativo, junta com cwd
-    if (!abs_path)
-        return -1;
 
-    int found = fs_path_resolve(fs, abs_path, ino_out);
-    *abs_out = abs_path;
-    return (found == 0) ? 1 : 0;
+    if (arg[0] == '/')          // Se o argumento já começa com '/', é um caminho absoluto
+        abs_path = strdup(arg); // Faz uma cópia do caminho absoluto
+    else                        // Caso contrário, constrói o caminho absoluto a partir do diretório atual (cwd)
+        abs_path = fs_join_path(fs, cwd, arg);
+
+    if (!abs_path) // Se não foi possível obter o caminho absoluto, retorna erro
+    {
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
+    }
+
+    int found = fs_path_resolve(fs, abs_path, ino_out); // Resolve o caminho absoluto para obter o número do inode correspondente
+    *abs_out = abs_path;                                // Retorna o caminho absoluto pelo ponteiro de saída
+
+    return found == 0 ? EXIT_SUCCESS : EXIT_FAILURE; // Retorna EXIT_SUCCESS se encontrou, EXIT_FAILURE caso contrário
 }
 
 /**
- * @brief   Comando para copiar um arquivo do sistema de arquivos EXT2 para o host.
+ * @brief   Cria o caminho completo de destino para a cópia de arquivos.
  *
- * Este comando recebe o caminho de um arquivo na imagem EXT2 e o caminho de destino no host,
- * copiando o conteúdo do arquivo da imagem para o sistema de arquivos local.
+ * Esta função constrói o caminho completo de destino, adicionando o nome do arquivo
+ * de origem ao diretório de destino, garantindo que o caminho seja válido.
  *
- * @param argc  Número de argumentos passados.
- * @param argv  Array de argumentos, onde argv[1] é o arquivo na imagem e argv[2] é o destino no host.
- * @param fs    Ponteiro para a estrutura do sistema de arquivos EXT2.
- * @param cwd   Ponteiro para o inode do diretório corrente.
+ * @param dst_full Buffer onde o caminho completo de destino será armazenado.
+ * @param dst Caminho do diretório de destino.
+ * @param src_path Caminho absoluto do arquivo de origem.
+ */
+void make_dst_path(char *dst_full, const char *dst, const char *src_path)
+{
+    size_t len = strlen(dst); // Obtém o comprimento da string de destino
+
+    if (dst[len - 1] != '/') // Se o destino NÃO termina com '/'...
+    {
+        const char *last_slash = strrchr(dst, '/'); // Procura a última barra '/' no destino
+        const char *last_dot = strrchr(dst, '.');   // Procura o último ponto '.' no destino
+
+        if (!last_dot || (last_slash && last_dot < last_slash)) // Se NÃO há ponto após a última barra, considera como diretório
+        {
+            snprintf(dst_full, 4096, "%s/", dst); // Adiciona '/' ao final do destino e armazena em dst_full
+            dst = dst_full;                       // Atualiza dst para apontar para dst_full (agora com '/')
+            len = strlen(dst);                    // Atualiza o comprimento do novo destino
+        }
+    }
+
+    if (dst[len - 1] == '/') // Se o destino termina com '/', é um diretório
+    {
+
+        const char *base = strrchr(src_path, '/'); // Obtém o nome do arquivo base de src_path (após a última '/')
+        base = base ? base + 1 : src_path;         // Se base for NULL, usa src_path inteiro como base
+        strcpy(dst_full, dst);                     // Copia o destino (com '/') para dst_full
+        strcat(dst_full, base);                    // Adiciona o nome do arquivo base ao destino
+    }
+    else // Caso contrário, apenas copia o destino para dst_full
+    {
+        strcpy(dst_full, dst);
+    }
+}
+
+/**
+ * @brief   Comando para copiar um arquivo do sistema de arquivos EXT2 para o sistema real.
  *
- * @return Retorna 0 em caso de sucesso, ou -1 em caso de erro.
+ * Este comando deve receber dois argumentos: o caminho do arquivo de origem no EXT2
+ * e o caminho absoluto de destino no sistema real.
+ *
+ * @param argc Número de argumentos (deve ser 3).
+ * @param argv Vetor de argumentos, onde argv[1] é o arquivo de origem e argv[2] é o destino.
+ * @param fs Ponteiro para a estrutura do sistema de arquivos EXT2.
+ * @param cwd Ponteiro para o diretório corrente (não utilizado).
+ *
+ * @return Retorna 0 em caso de sucesso, ou 1 em caso de erro.
  */
 int cmd_cp(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
 {
-    if (argc != 3)
+    if (argc != 3) // Verifica se o número de argumentos é válido
     {
-        fprintf(stderr, "Uso: cp <arquivo_na_imagem> <destino_no_host>\n");
-        errno = EINVAL;
-        return -1;
+        print_error(ERROR_INVALID_SYNTAX);
+        return 1;
     }
 
-    char *src_path = NULL;
-    uint32_t src_ino = 0;
-    if (resolve_image_path(fs, *cwd, argv[1], &src_path, &src_ino) <= 0)
+    if (argv[2][0] != '/') // Destino deve ser caminho absoluto do sistema real
     {
-        fprintf(stderr, "Arquivo de origem não encontrado: %s\n", argv[1]);
+        print_error(ERROR_INVALID_SYNTAX);
+        return 1;
+    }
+
+    char *src_path = NULL;                                          // Caminho absoluto do arquivo de origem
+    uint32_t src_ino = 0;                                           // Inode do arquivo de origem
+    if (resolve_image_path(fs, *cwd, argv[1], &src_path, &src_ino)) // Resolve o caminho do arquivo de origem
+    {
+        print_error(ERROR_FILE_NOT_FOUND);
         free(src_path);
-        errno = ENOENT;
-        return -1;
+        return EXIT_FAILURE;
     }
 
-    const char *dst_arg = argv[2];
-    char *dst_full = NULL;
-    struct stat st;
-    int needs_suffix = 0;
+    char dst_full[4096];                        // Caminho completo do destino
+    make_dst_path(dst_full, argv[2], src_path); // Cria o caminho completo do destino
 
-    // Se terminar com '/' ou for um diretório existente, adiciona basename
-    if (dst_arg[strlen(dst_arg) - 1] == '/' || (stat(dst_arg, &st) == 0 && S_ISDIR(st.st_mode)))
-    {
-        needs_suffix = 1;
-    }
-
-    if (needs_suffix)
-    {
-        char *tmp = strdup(src_path);
-        char *base = basename(tmp);
-        size_t len = strlen(dst_arg) + (dst_arg[strlen(dst_arg) - 1] == '/' ? 0 : 1) + strlen(base) + 1;
-        dst_full = malloc(len);
-        if (!dst_full)
-        {
-            perror("malloc");
-            free(tmp);
-            free(src_path);
-            return -1;
-        }
-        snprintf(dst_full, len, "%s%s%s",
-                 dst_arg,
-                 dst_arg[strlen(dst_arg) - 1] == '/' ? "" : "/",
-                 base);
-        free(tmp);
-    }
-    else
-    {
-        dst_full = strdup(dst_arg);
-        if (!dst_full)
-        {
-            perror("strdup");
-            free(src_path);
-            return -1;
-        }
-    }
-
-    int rc = copy_ext2_to_host(fs, src_ino, dst_full);
-    if (rc < 0)
-        perror("cp");
+    int res = copy_ext2_to_host(fs, src_ino, dst_full); // Copia o arquivo do EXT2 para o sistema real
 
     free(src_path);
-    free(dst_full);
-    return rc;
+
+    return res ? EXIT_FAILURE : EXIT_SUCCESS;
 }

@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
 #include <time.h>
+
 #include "commands.h"
 
 /**
@@ -24,7 +24,7 @@ static void build_perm_string(struct ext2_inode *inode, char out[11])
     if ((mode & 0xF000) == EXT2_S_IFDIR)
         out[0] = 'd';
     else if ((mode & 0xF000) == EXT2_S_IFREG)
-        out[0] = '-';
+        out[0] = 'f';
     else if ((mode & 0xF000) == EXT2_S_IFLNK)
         out[0] = 'l';
     else if ((mode & 0xF000) == EXT2_S_IFCHR)
@@ -96,43 +96,45 @@ static void human_size(uint32_t bytes, char *out, size_t outsz)
  */
 int cmd_attr(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
 {
-    if (argc != 2)
+    if (argc != 2) // Verifica se o número de argumentos é válido
     {
-        fprintf(stderr, "Uso: attr <arquivo|diretório>\n");
-        errno = EINVAL;
-        return -1;
+        print_error(ERROR_INVALID_SYNTAX);
+        return EXIT_FAILURE;
     }
 
     char *full_path = fs_join_path(fs, *cwd, argv[1]); // Combina o diretório atual com o caminho fornecido
-    if (!full_path)
-        return -1;
+    if (!full_path)                                    // Verifica se a junção do caminho foi bem-sucedida
+    {
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
+    }
 
-    uint32_t inode_num;
+    uint32_t inode_num;                                 // Variável para armazenar o número do inode correspondente ao caminho
     if (fs_path_resolve(fs, full_path, &inode_num) < 0) // Resolve o caminho para obter o inode correspondente
     {
-        fprintf(stderr, "Erro: caminho '%s' não encontrado.\n", argv[1]);
+        print_error(ERROR_FILE_OR_DIRECTORY_NOT_FOUND);
         free(full_path);
-        return -1;
+        return EXIT_FAILURE;
     }
 
-    struct ext2_inode inode;
+    struct ext2_inode inode;                      // Estrutura para armazenar o inode do arquivo ou diretório
     if (fs_read_inode(fs, inode_num, &inode) < 0) // Lê o inode do arquivo ou diretório
     {
-        fprintf(stderr, "Erro ao ler inode.\n");
+        print_error(ERROR_FILE_OR_DIRECTORY_NOT_FOUND);
         free(full_path);
-        return -1;
+        return EXIT_FAILURE;
     }
 
-    char perm_str[11];
+    char perm_str[11];                   // String para armazenar as permissões do arquivo ou diretório
     build_perm_string(&inode, perm_str); // Constrói a string de permissões a partir do inode
 
-    char size_str[32];
+    char size_str[32];                                    // String para armazenar o tamanho do arquivo em uma forma legível
     human_size(inode.i_size, size_str, sizeof(size_str)); // Converte o tamanho do arquivo em uma string legível
 
-    char mod_date[20];
-    time_t mod_time = inode.i_mtime;
-    struct tm tm_info;
-    localtime_r(&mod_time, &tm_info);
+    char mod_date[20];                                                // String para armazenar a data de modificação do arquivo
+    time_t mod_time = inode.i_mtime;                                  // Obtém o tempo de modificação do inode
+    struct tm tm_info;                                                // Estrutura para armazenar informações de tempo
+    localtime_r(&mod_time, &tm_info);                                 // Converte o tempo de modificação para a estrutura tm
     strftime(mod_date, sizeof(mod_date), "%d/%m/%Y %H:%M", &tm_info); // Formata a data de modificação
 
     printf("%-11s %-6s %-6s %-12s %-17s\n", "Permissões", "UID", "GID", "Tamanho", "Modificado em");
@@ -144,5 +146,5 @@ int cmd_attr(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
            mod_date);
 
     free(full_path);
-    return 0;
+    return EXIT_SUCCESS;
 }

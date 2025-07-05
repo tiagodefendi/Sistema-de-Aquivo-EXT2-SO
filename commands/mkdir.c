@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
 #include <time.h>
+
 #include "commands.h"
 
 /**
@@ -91,8 +91,8 @@ static int dir_add_entry(ext2_fs_t *fs, struct ext2_inode *dir_inode, uint32_t d
     }
 
     // Não há espaço disponível nos blocos diretos
-    errno = ENOSPC;
-    return -1;
+    print_error(ERROR_UNKNOWN);
+    return EXIT_FAILURE;
 }
 
 /**
@@ -109,94 +109,93 @@ static int dir_add_entry(ext2_fs_t *fs, struct ext2_inode *dir_inode, uint32_t d
  */
 int cmd_mkdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
 {
-    if (argc != 2)
+    if (argc != 2) // Verifica se o número de argumentos é correto
     {
-        fprintf(stderr, "Uso: mkdir <diretório>\n");
-        errno = EINVAL;
-        return -1;
+        print_error(ERROR_INVALID_SYNTAX);
+        return EXIT_FAILURE;
     }
 
-    // Monta o caminho absoluto do novo diretório
-    char *novo_caminho = fs_join_path(fs, *cwd, argv[1]);
-    if (!novo_caminho)
-        return -1;
+    char *novo_caminho = fs_join_path(fs, *cwd, argv[1]); // Cria o caminho absoluto do novo diretório
+    if (!novo_caminho)                                    // Verifica se a alocação do caminho foi bem-sucedida
+    {
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
+    }
 
-    // Verifica se já existe um arquivo ou diretório com esse nome
     uint32_t inode_existente;
-    if (fs_path_resolve(fs, novo_caminho, &inode_existente) == 0)
+    if (fs_path_resolve(fs, novo_caminho, &inode_existente) == 0) // Verifica se já existe um arquivo ou diretório com esse nome
     {
-        fprintf(stderr, "mkdir: '%s' já existe\n", argv[1]);
         free(novo_caminho);
-        errno = EEXIST;
-        return -1;
+        print_error(ERROR_DIRECTORY_ALREADY_EXISTS);
+        return EXIT_FAILURE;
     }
 
-    // Separa o caminho do diretório pai e o nome do novo diretório
-    char *ultimo_slash = strrchr(novo_caminho, '/');
-    char *nome_dir = ultimo_slash ? ultimo_slash + 1 : novo_caminho;
-    char *caminho_pai;
-    if (ultimo_slash)
+    char *ultimo_slash = strrchr(novo_caminho, '/');                 // Separa o caminho do diretório pai e o nome do novo diretório
+    char *nome_dir = ultimo_slash ? ultimo_slash + 1 : novo_caminho; // Nome do novo diretório
+    char *caminho_pai;                                               // Variável para armazenar o caminho do diretório pai
+    if (ultimo_slash)                                                // Se houver um último '/' no caminho
     {
-        if (ultimo_slash == novo_caminho)
+        if (ultimo_slash == novo_caminho) // Se o caminho for apenas '/'
             caminho_pai = strdup("/");
-        else
+        else // Se houver um caminho pai
         {
             *ultimo_slash = '\0';
             caminho_pai = strdup(novo_caminho);
             *ultimo_slash = '/';
         }
     }
-    else
+    else // Se não houver um último '/', o diretório pai é o atual
     {
-        caminho_pai = fs_get_path(fs, *cwd);
+        caminho_pai = fs_get_path(fs, *cwd); // Obtém o caminho do diretório atual
     }
-    if (!caminho_pai)
+    if (!caminho_pai) // Verifica se a alocação do caminho pai foi bem-sucedida
     {
         free(novo_caminho);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
-    // Resolve o inode do diretório pai
     uint32_t inode_pai;
     if (fs_path_resolve(fs, caminho_pai, &inode_pai) < 0) // Resolve o inode do diretório pai
     {
         free(novo_caminho);
         free(caminho_pai);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
-    struct ext2_inode inode_pai_struct;
+    struct ext2_inode inode_pai_struct;                      // Estrutura para armazenar o inode do diretório pai
     if (fs_read_inode(fs, inode_pai, &inode_pai_struct) < 0) // Lê o inode do diretório pai
     {
         free(novo_caminho);
         free(caminho_pai);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
     if (!ext2_is_dir(&inode_pai_struct)) // Verifica se o inode do pai é um diretório
     {
-        fprintf(stderr, "mkdir: '%s' não é um diretório\n", caminho_pai);
-        errno = ENOTDIR;
         free(novo_caminho);
         free(caminho_pai);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
-    // Aloca inode para o novo diretório
-    uint32_t novo_inode;
+    uint32_t novo_inode;                                          // Variável para armazenar o número do novo inode
     if (fs_alloc_inode(fs, EXT2_S_IFDIR | 0755, &novo_inode) < 0) // Aloca um novo inode para o diretório
     {
         free(novo_caminho);
         free(caminho_pai);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
-    // Aloca o primeiro bloco do novo diretório
-    uint32_t novo_bloco;
+    uint32_t novo_bloco;                     // Aloca o primeiro bloco do novo diretório
     if (fs_alloc_block(fs, &novo_bloco) < 0) // Aloca um novo bloco para o diretório
     {
         free(novo_caminho);
         free(caminho_pai);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     // Prepara o inode do novo diretório
@@ -215,7 +214,8 @@ int cmd_mkdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     {
         free(novo_caminho);
         free(caminho_pai);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     // Cria as entradas '.' e '..' no novo diretório
@@ -240,23 +240,22 @@ int cmd_mkdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     {
         free(novo_caminho);
         free(caminho_pai);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
-    if (dir_add_entry(fs, &inode_pai_struct, inode_pai, novo_inode, nome_dir, EXT2_FT_DIR) < 0) // Adiciona a entrada do novo diretório no diretório pai
+    if (dir_add_entry(fs, &inode_pai_struct, inode_pai, novo_inode, nome_dir, EXT2_FT_DIR)) // Adiciona a entrada do novo diretório no diretório pai
     {
         free(novo_caminho);
         free(caminho_pai);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
-    // Atualiza o link count do diretório pai
-    inode_pai_struct.i_links_count++;
-    fs_write_inode(fs, inode_pai, &inode_pai_struct);
-
-    printf("Diretório criado: %s (inode: %u)\n", argv[1], novo_inode);
+    inode_pai_struct.i_links_count++;                 // Atualiza o link count do diretório pai
+    fs_write_inode(fs, inode_pai, &inode_pai_struct); // Escreve o inode do diretório pai no disco
 
     free(novo_caminho);
     free(caminho_pai);
-    return 0;
+    return EXIT_SUCCESS;
 }

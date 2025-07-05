@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
+
 #include "commands.h"
 
 /**
@@ -19,44 +19,46 @@
  */
 static int rename_entry_block(ext2_fs_t *fs, uint32_t blk, uint32_t target_ino, char *newname)
 {
-    uint8_t buf[EXT2_BLOCK_SIZE];
+    uint8_t buf[EXT2_BLOCK_SIZE];        // Buffer para armazenar o bloco lido
     if (fs_read_block(fs, blk, buf) < 0) // Lê o bloco do diretório
-        return -1;
+    {
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
+    }
 
-    uint32_t pos = 0;
-    while (pos < EXT2_BLOCK_SIZE)
+    uint32_t pos = 0;             // Posição atual no buffer
+    while (pos < EXT2_BLOCK_SIZE) // Percorre o bloco até o final
     {
         struct ext2_dir_entry *entry = (struct ext2_dir_entry *)(buf + pos); // Obtém a entrada de diretório atual
-        if (entry->rec_len == 0)
+
+        if (entry->rec_len == 0) // Se a entrada não tiver comprimento, significa que não há mais entradas
             break;
 
-        if (entry->inode == target_ino)
+        if (entry->inode == target_ino) // Verifica se a entrada corresponde ao inode alvo
         {
             uint8_t newname_len = (uint8_t)strlen(newname);      // Comprimento do novo nome
             uint16_t required_len = rec_len_needed(newname_len); // Calcula o comprimento necessário para a nova entrada
 
-            if (required_len > entry->rec_len)
+            if (required_len > entry->rec_len) // Verifica se o comprimento necessário é maior que o comprimento da entrada atual
             {
-                errno = ENOSPC;
-                return -1;
+                print_error(ERROR_UNKNOWN);
+                return EXIT_FAILURE; // Se não houver espaço suficiente, retorna erro
             }
 
-            entry->name_len = newname_len;
+            entry->name_len = newname_len;             // Atualiza o comprimento do nome da entrada
             memcpy(entry->name, newname, newname_len); // Copia o novo nome para a entrada
 
-            // Preenche com zeros o restante do nome antigo, se necessário
-            if (newname_len < entry->rec_len - 8)
+            if (newname_len < entry->rec_len - 8)                                       // Se o novo nome for menor que o espaço restante na entrada
                 memset(entry->name + newname_len, 0, entry->rec_len - 8 - newname_len); // Preenche com zeros após o novo nome
 
-            // Salva o bloco modificado
-            return fs_write_block(fs, blk, buf);
+            return fs_write_block(fs, blk, buf); // Salva o bloco modificado
         }
 
         pos += entry->rec_len; // Avança para a próxima entrada
     }
 
-    errno = ENOENT;
-    return -1;
+    print_error(ERROR_UNKNOWN);
+    return EXIT_FAILURE;
 }
 
 /**
@@ -73,44 +75,47 @@ static int rename_entry_block(ext2_fs_t *fs, uint32_t blk, uint32_t target_ino, 
  */
 int cmd_rename(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
 {
-    if (argc != 3)
+    if (argc != 3) // Verifica se o número de argumentos é válido
     {
-        fprintf(stderr, "Uso: rename <arquivo> <novo_nome>\n");
-        errno = EINVAL;
-        return -1;
+        print_error(ERROR_INVALID_SYNTAX);
+        return EXIT_FAILURE;
     }
 
-    char *old_path = argv[1];
-    char *new_name = argv[2];
+    char *old_path = argv[1]; // Caminho do arquivo a ser renomeado
+    char *new_name = argv[2]; // Novo nome para o arquivo
 
-    if (strlen(new_name) > 255)
+    if (strlen(new_name) > 255) // Verifica se o novo nome é muito longo
     {
-        fprintf(stderr, "novo_nome muito longo\n");
-        errno = ENAMETOOLONG;
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
-    // Resolve o caminho completo do arquivo antigo
-    char *old_full_path = fs_join_path(fs, *cwd, old_path);
-    if (!old_full_path)
-        return -1;
+    char *old_full_path = fs_join_path(fs, *cwd, old_path); // Resolve o caminho completo do arquivo antigo
+    if (!old_full_path)                                     // Se não conseguir juntar o caminho, retorna erro
+    {
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
+    }
 
-    uint32_t old_inode;
+    uint32_t old_inode;                                     // Variável para armazenar o inode do arquivo antigo
     if (fs_path_resolve(fs, old_full_path, &old_inode) < 0) // Resolve o inode do arquivo antigo
     {
         free(old_full_path);
-        return -1;
+        print_error(ERROR_FILE_NOT_FOUND);
+        return EXIT_FAILURE;
     }
 
-    // Descobre o diretório pai do arquivo
-    char *parent_path;
-    char *dup_path = strdup(old_full_path);
-    char *last_slash = strrchr(dup_path, '/');
-    if (!last_slash)
-        parent_path = fs_get_path(fs, *cwd);
-    else if (last_slash == dup_path)
-        parent_path = strdup("/");
-    else
+    char *parent_path;                         // Descobre o diretório pai do arquivo
+    char *dup_path = strdup(old_full_path);    // Duplica o caminho completo do arquivo antigo
+    char *last_slash = strrchr(dup_path, '/'); // Encontra a última barra no caminho
+
+    if (!last_slash)                         // Se não encontrar barra, significa que é o diretório atual
+        parent_path = fs_get_path(fs, *cwd); // Obtém o caminho do diretório atual
+
+    else if (last_slash == dup_path) // Se a barra for o primeiro caractere, significa que é a raiz
+        parent_path = strdup("/");   // Define o caminho do diretório pai como raiz
+
+    else // Se encontrar uma barra, separa o caminho do diretório pai
     {
         *last_slash = '\0';
         parent_path = strdup(dup_path);
@@ -122,7 +127,8 @@ int cmd_rename(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         free(old_full_path);
         free(dup_path);
         free(parent_path);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     struct ext2_inode parent_inode;
@@ -131,58 +137,51 @@ int cmd_rename(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         free(old_full_path);
         free(dup_path);
         free(parent_path);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     int already_exists = name_exists(fs, &parent_inode, new_name); // Verifica se já existe uma entrada com o novo nome
-    if (already_exists < 0)
+    if (already_exists < 0)                                        // Se ocorrer um erro ao verificar a existência do nome
     {
         free(old_full_path);
         free(dup_path);
         free(parent_path);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
-    if (already_exists == 1)
+    if (already_exists == 1) // Se já existe uma entrada com o novo nome, retorna erro
     {
-        fprintf(stderr, "%s: já existe\n", new_name);
         free(old_full_path);
         free(dup_path);
         free(parent_path);
-        errno = EEXIST;
-        return -1;
+        print_error(ERROR_FILE_ALREADY_EXISTS);
+        return EXIT_FAILURE;
     }
 
-    // Procura e renomeia a entrada no diretório pai
     int renamed = 0;
-    for (int i = 0; i < 12; ++i)
+    for (int i = 0; i < 12; ++i) // Procura e renomeia a entrada no diretório pai
     {
-        uint32_t block = parent_inode.i_block[i];
-        if (!block)
+        uint32_t block = parent_inode.i_block[i]; // Obtém o bloco do diretório pai
+        if (!block)                               // Se o bloco for 0, significa que não há mais blocos para verificar
             continue;
-        if (rename_entry_block(fs, block, old_inode, new_name) == 0) // Renomeia a entrada no bloco
+        if (!rename_entry_block(fs, block, old_inode, new_name)) // Renomeia a entrada no bloco
         {
             renamed = 1;
             break;
         }
-        if (errno != ENOENT)
-        {
-            free(old_full_path);
-            free(dup_path);
-            free(parent_path);
-            return -1;
-        }
     }
-    if (!renamed)
+    if (!renamed) // Se não conseguiu renomear a entrada em nenhum bloco
     {
         free(old_full_path);
         free(dup_path);
         free(parent_path);
-        errno = ENOENT;
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     free(old_full_path);
     free(dup_path);
     free(parent_path);
-    return 0;
+    return EXIT_SUCCESS;
 }

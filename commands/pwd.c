@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <errno.h>
+
 #include "commands.h"
 
 /**
@@ -16,29 +16,22 @@
  */
 int cmd_pwd(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
 {
-    // Ignora argumentos além do comando
-    (void)argv;
+    (void)argv; // Ignora argumentos além do comando
 
-    // Verifica se o comando foi chamado corretamente
-    if (argc != 1)
+    if (argc != 1) // Verifica se o comando foi chamado corretamente
     {
-        fprintf(stderr, "Uso correto: pwd\n");
-        errno = EINVAL;
-        return -1;
+        print_error(ERROR_INVALID_SYNTAX);
+        return EXIT_FAILURE;
     }
 
-    // Obtém o caminho absoluto do diretório atual
-    char *current_path = fs_get_path(fs, *cwd);
-    if (!current_path)
+    char *current_path = fs_get_path(fs, *cwd); // Obtém o caminho absoluto do diretório atual
+    if (!current_path)                          // Verifica se a obtenção do caminho foi bem-sucedida
     {
-        fprintf(stderr, "Erro ao obter o caminho do diretório atual.\n");
-        return -1;
+        print_error(ERROR_DIRECTORY_NOT_FOUND);
+        return EXIT_FAILURE;
     }
 
-    // Imprime o caminho
-    printf("%s\n", current_path);
-
-    // Libera a memória alocada para o caminho
-    free(current_path);
-    return 0;
+    printf("%s\n", current_path); // Imprime o caminho
+    free(current_path);           // Libera a memória alocada para o caminho
+    return EXIT_SUCCESS;
 }

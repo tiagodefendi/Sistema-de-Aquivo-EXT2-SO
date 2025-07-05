@@ -48,6 +48,7 @@ int cmd_rm(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd);
 int cmd_rmdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd);
 int cmd_rename(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd);
 int cmd_cp(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd);
+int cmd_mv(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd);
 int cmd_print(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd);
 
 #define CMD_TABLE_END {NULL, NULL, NULL}

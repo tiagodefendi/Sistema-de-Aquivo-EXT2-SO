@@ -31,7 +31,7 @@
  *
  * @param line Linha de comando a ser tokenizada.
  * @param argv Array onde os tokens serão armazenados.
- * 
+ *
  * @return Número de tokens encontrados.
  */
 int tokenize(char *line, char **argv)
@@ -99,6 +99,7 @@ struct command_entry cmd_table[] = {
     {"rmdir", cmd_rmdir, "Remove o diretório <dir>, se estiver vazio."},
     {"rename", cmd_rename, "Renomeia arquivo <file> para <newfilename>."},
     {"cp", cmd_cp, "Copia um arquivo de origem (<source_path>) para destino (<target_path>)."},
+    {"mv", cmd_mv, "Move um arquivo da imagem EXT2 para o host (remove após copiar)."},
     {"print", cmd_print, "Exibe informações do sistema EXT2."},
     CMD_TABLE_END};
 

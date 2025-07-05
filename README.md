@@ -51,7 +51,7 @@ Experimente os comandos abaixo no shell interativo:
 - [x] **rmdir &lt;dir&gt;** — Remove um diretório vazio
 - [x] **rename &lt;file&gt; &lt;newfilename&gt;** — Renomeia um arquivo
 - [x] **cp &lt;source_path&gt; &lt;target_path&gt;** — Copia arquivo da imagem para o sistema real
-- [ ] **mv &lt;source_path&gt; &lt;target_path&gt;** — Move arquivo (opcional)
+- [x] **mv &lt;source_path&gt; &lt;target_path&gt;** — Move arquivo (opcional)
 - [x] **print [ superblock | groups | inode ]**: exibe informações do sistema EXT2.
 
 > 💡 **Dicas rápidas:**

@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
 #include <time.h>
 
 #include "commands.h"
@@ -25,17 +24,23 @@ int fs_free_blocks(ext2_fs_t *fs, uint32_t blk)
     uint32_t group = (blk - fs->sb.s_first_data_block) / fs->sb.s_blocks_per_group;
 
     if (fs_read_group_desc(fs, group, &gd) < 0)
-        return -1;
+    {
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
+    }
     if (fs_read_block(fs, gd.bg_block_bitmap, bitmap) < 0)
-        return -1;
+    {
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
+    }
 
     uint32_t idx = (blk - fs->sb.s_first_data_block) % fs->sb.s_blocks_per_group;
 
     /* bloco já livre → inconsistência */
     if (!(bitmap[BIT_BYTE(idx)] & BIT_MASK(idx)))
     {
-        errno = EINVAL;
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     bitmap[BIT_BYTE(idx)] &= ~BIT_MASK(idx); /* marca como livre */
@@ -43,9 +48,15 @@ int fs_free_blocks(ext2_fs_t *fs, uint32_t blk)
     fs->sb.s_free_blocks_count++;
 
     if (fs_write_block(fs, gd.bg_block_bitmap, bitmap) < 0)
-        return -1;
+    {
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
+    }
     if (fs_write_group_desc(fs, group, &gd) < 0)
-        return -1;
+    {
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
+    }
 
     return fs_sync_super(fs);
 }
@@ -65,23 +76,32 @@ int fs_free_blocks(ext2_fs_t *fs, uint32_t blk)
 int free_indirect_chain(ext2_fs_t *fs, uint32_t blk, int depth)
 {
     if (!blk)
-        return 0;
+        return EXIT_SUCCESS;
 
-    uint32_t ptrs[PTRS_PER_BLOCK]; // Ponteiros para blocos
-    if (fs_read_block(fs, blk, ptrs) < 0)
-        return -1;
-
-    if (depth == 1)
+    uint32_t ptrs[PTRS_PER_BLOCK];        // Ponteiros para blocos
+    if (fs_read_block(fs, blk, ptrs) < 0) // Lê o bloco indireto
     {
-        for (size_t i = 0; i < PTRS_PER_BLOCK; ++i)         // Percorre os ponteiros
-            if (ptrs[i] && fs_free_blocks(fs, ptrs[i]) < 0) // Libera blocos diretos
-                return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
-    else
+
+    if (depth == 1) // Se for indireto simples
     {
-        for (size_t i = 0; i < PTRS_PER_BLOCK; ++i)
-            if (ptrs[i] && free_indirect_chain(fs, ptrs[i], depth - 1) < 0) // Libera blocos indiretos
-                return -1;
+        for (size_t i = 0; i < PTRS_PER_BLOCK; ++i)     // Percorre os ponteiros
+            if (ptrs[i] && fs_free_blocks(fs, ptrs[i])) // Libera blocos diretos
+            {
+                print_error(ERROR_UNKNOWN);
+                return EXIT_FAILURE;
+            }
+    }
+    else // depth == 2
+    {
+        for (size_t i = 0; i < PTRS_PER_BLOCK; ++i)                     // Percorre os ponteiros
+            if (ptrs[i] && free_indirect_chain(fs, ptrs[i], depth - 1)) // Libera blocos indiretos
+            {
+                print_error(ERROR_UNKNOWN);
+                return EXIT_FAILURE;
+            }
     }
 
     return fs_free_blocks(fs, blk); // Libera o bloco indireto em si
@@ -100,32 +120,42 @@ int free_indirect_chain(ext2_fs_t *fs, uint32_t blk, int depth)
  */
 int free_inode_block(ext2_fs_t *fs, struct ext2_inode *ino)
 {
-    // Libera blocos diretos
-    for (int i = 0; i < 12; ++i)
-        if (ino->i_block[i] && fs_free_blocks(fs, ino->i_block[i]) < 0)
-            return -1;
-
-    // Libera indireto simples
-    if (free_indirect_chain(fs, ino->i_block[12], 1) < 0)
-        return -1;
-
-    // Libera indireto duplo
-    if (free_indirect_chain(fs, ino->i_block[13], 2) < 0)
-        return -1;
-
-    // Libera indireto triplo
-    if (free_indirect_chain(fs, ino->i_block[14], 3) < 0)
-        return -1;
-
     // Zera os ponteiros e estatísticas do inode
+    for (int i = 0; i < 12; ++i) // Libera diretos
+    {
+        if (ino->i_block[i] && fs_free_blocks(fs, ino->i_block[i])) // Libera diretos
+        {
+            print_error(ERROR_UNKNOWN);
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (free_indirect_chain(fs, ino->i_block[12], 1)) // Libera indiretos simples
+    {
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
+    }
+
+    if (free_indirect_chain(fs, ino->i_block[13], 2)) // Libera indireto duplo
+    {
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
+    }
+
+    if (free_indirect_chain(fs, ino->i_block[14], 3) < 0) // Libera indireto triplo
+    {
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
+    }
+
+    // Zera os ponteiros de blocos
     memset(ino->i_block, 0, sizeof(ino->i_block));
     ino->i_blocks = 0;
     ino->i_size = 0;
     ino->i_dtime = time(NULL);
 
-    return 0;
+    return EXIT_SUCCESS;
 }
-
 
 /**
  * @brief   Remove uma entrada de diretório pelo número do inode.
@@ -141,51 +171,52 @@ int free_inode_block(ext2_fs_t *fs, struct ext2_inode *ino)
  */
 int dir_remove_entry_rm(ext2_fs_t *fs, struct ext2_inode *dir_inode, uint32_t target_ino)
 {
-    uint8_t buf[EXT2_BLOCK_SIZE];
+    uint8_t buf[EXT2_BLOCK_SIZE]; // Buffer para armazenar o bloco lido
 
-    for (int i = 0; i < 12; ++i)
+    for (int i = 0; i < 12; ++i) // Percorre os blocos diretos do diretório
     {
-        uint32_t bloco = dir_inode->i_block[i];
-        if (!bloco)
+        uint32_t bloco = dir_inode->i_block[i]; // Obtém o bloco atual
+        if (!bloco)                             // Se o bloco não existe, continua para o próximo
             continue;
 
-        if (fs_read_block(fs, bloco, buf) < 0)
-            return -1;
+        if (fs_read_block(fs, bloco, buf) < 0) // Lê o bloco do diretório
+        {
+            print_error(ERROR_UNKNOWN);
+            return EXIT_FAILURE;
+        }
 
-        uint32_t off = 0;
+        uint32_t off = 0; // Posição atual no buffer
         struct ext2_dir_entry *prev = NULL;
 
-        while (off < EXT2_BLOCK_SIZE)
+        while (off < EXT2_BLOCK_SIZE) // Percorre o bloco até o final
         {
-            struct ext2_dir_entry *e = (void *)(buf + off);
-            if (!e->rec_len)
+            struct ext2_dir_entry *e = (void *)(buf + off); // Obtém a entrada de diretório atual
+            if (!e->rec_len)                                // Se a entrada não tiver comprimento, significa que não há mais entradas
                 break;
 
             if (e->inode == target_ino)
             {
-                if (prev)
-                {
-                    // funde o espaço da entrada removida no rec_len da anterior
+                if (prev) // Funde o espaço da entrada removida no rec_len da anterior
                     prev->rec_len += e->rec_len;
-                }
-                else
+                else // se for a primeira entrada do bloco, marcaremos ela como livre estendendo-a até o fim do bloco
                 {
-                    // se for a primeira entrada do bloco,
-                    // marcaremos ela como livre estendendo-a até o fim do bloco
-                    e->inode   = 0;
+                    e->inode = 0;
                     e->rec_len = EXT2_BLOCK_SIZE;
                 }
 
-                if (fs_write_block(fs, bloco, buf) < 0)
-                    return -1;
-                return 0;
+                if (fs_write_block(fs, bloco, buf) < 0) // Atualiza o bloco com a entrada removida
+                {
+                    print_error(ERROR_UNKNOWN);
+                    return EXIT_FAILURE;
+                }
+                return EXIT_SUCCESS;
             }
             prev = e;
             off += e->rec_len;
         }
     }
-    errno = ENOENT;
-    return -1;
+    print_error(ERROR_UNKNOWN);
+    return EXIT_FAILURE;
 }
 
 /**
@@ -203,42 +234,45 @@ int dir_remove_entry_rm(ext2_fs_t *fs, struct ext2_inode *dir_inode, uint32_t ta
  */
 int cmd_rm(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
 {
-    if (argc != 2)
+    if (argc != 2) // Verifica se o número de argumentos é correto
     {
-        fprintf(stderr, "Uso: rm <arquivo>\n");
-        errno = EINVAL;
-        return -1;
+        print_error(ERROR_INVALID_SYNTAX);
+        return EXIT_FAILURE;
     }
 
     char *full_path = fs_join_path(fs, *cwd, argv[1]); // Junta o caminho atual com o nome do arquivo
-    if (!full_path)
-        return -1;
+    if (!full_path)                                    // Se não conseguir juntar o caminho, exibe erro
+    {
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
+    }
 
-    uint32_t file_ino;
+    uint32_t file_ino;                                 // Variável para armazenar o inode do arquivo
     if (fs_path_resolve(fs, full_path, &file_ino) < 0) // Resolve o inode do arquivo
     {
         free(full_path);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
-    struct ext2_inode file_inode;
+    struct ext2_inode file_inode;                     // Estrutura para armazenar o inode do arquivo
     if (fs_read_inode(fs, file_ino, &file_inode) < 0) // Lê o inode do arquivo
     {
         free(full_path);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     if (ext2_is_dir(&file_inode)) // Verifica se é um diretório
     {
-        fprintf(stderr, "%s: é um diretório (use rmdir)\n", argv[1]);
         free(full_path);
-        errno = EISDIR;
-        return -1;
+        print_error(ERROR_FILE_NOT_FOUND);
+        return EXIT_FAILURE;
     }
 
-    char *parent_path = strdup(full_path); // Duplica o caminho completo
+    char *parent_path = strdup(full_path);   // Duplica o caminho completo
     char *slash = strrchr(parent_path, '/'); // Encontra a última barra no caminho
-    if (slash && slash != parent_path) // Se houver uma barra e não for o início do caminho
+    if (slash && slash != parent_path)       // Se houver uma barra e não for o início do caminho
         *slash = '\0';
     else // Se não houver barra ou for o início do caminho
         strcpy(parent_path, "/");
@@ -248,7 +282,8 @@ int cmd_rm(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     {
         free(full_path);
         free(parent_path);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     struct ext2_inode parent_inode;
@@ -256,31 +291,35 @@ int cmd_rm(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     {
         free(full_path);
         free(parent_path);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     if (dir_remove_entry_rm(fs, &parent_inode, file_ino) < 0) // Remove a entrada do diretório pai
     {
         free(full_path);
         free(parent_path);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
-    if (free_inode_block(fs, &file_inode) < 0) // Libera os blocos do inode
+    if (free_inode_block(fs, &file_inode)) // Libera os blocos do inode
     {
         free(full_path);
         free(parent_path);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     if (fs_free_inode(fs, file_ino) < 0) // Libera o inode
     {
         free(full_path);
         free(parent_path);
-        return -1;
+        print_error(ERROR_UNKNOWN);
+        return EXIT_FAILURE;
     }
 
     free(full_path);
     free(parent_path);
-    return 0;
+    return EXIT_SUCCESS;
 }

@@ -33,7 +33,7 @@ int cmd_info(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     memcpy(volume_name, fs->sb.s_volume_name, 16); // Copia o nome do volume do superbloco
 
     off_t image_size = lseek(fs->fd, 0, SEEK_END); // Obtém o tamanho total da imagem
-    if (image_size < 0) // Verifica se houve erro ao ler o tamanho da imagem
+    if (image_size < 0)                            // Verifica se houve erro ao ler o tamanho da imagem
     {
         print_error(ERROR_UNKNOWN);
         return EXIT_FAILURE;
@@ -48,17 +48,17 @@ int cmd_info(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     uint32_t inodes_per_group = fs->sb.s_inodes_per_group;                                      // Contagem de inodes por grupo
     uint32_t inodetable_blocks = (inodes_per_group * inode_size + block_size - 1) / block_size; // Tamanho da tabela de inodes em blocos
 
-    printf("Nome do volume........: %s\n", volume_name[0] ? volume_name : "<sem nome>");
-    printf("Tamanho da imagem.....: %lld bytes\n", (long long)image_size);
-    printf("Espaço livre..........: %u KiB\n", ((free_blocks - fs->sb.s_r_blocks_count) * block_size) / 1024);
-    printf("Inodes livres.........: %u\n", free_inodes);
-    printf("Blocos livres.........: %u\n", free_blocks);
-    printf("Tamanho do bloco......: %u bytes\n", block_size);
-    printf("Tamanho do inode......: %u bytes\n", inode_size);
-    printf("Quantidade de grupos..: %u\n", group_count);
-    printf("Blocos por grupo......: %u\n", blocks_per_group);
-    printf("Inodes por grupo......: %u\n", inodes_per_group);
-    printf("Blocos da tabela inode: %u\n", inodetable_blocks);
+    printf("Volume name.....: %s\n", volume_name[0] ? volume_name : "<no name>");
+    printf("Image size......: %lld bytes\n", (long long)image_size);
+    printf("Free space......: %u KiB\n", ((free_blocks - fs->sb.s_r_blocks_count) * block_size) / 1024);
+    printf("Free inodes.....: %u\n", free_inodes);
+    printf("Free blocks.....: %u\n", free_blocks);
+    printf("Block size......: %u bytes\n", block_size);
+    printf("Inode size......: %u bytes\n", inode_size);
+    printf("Groups count....: %u\n", group_count);
+    printf("Groups size.....: %u blocks\n", blocks_per_group);
+    printf("Groups inodes...: %u inodes\n", inodes_per_group);
+    printf("Inodetable size.: %u blocks\n", inodetable_blocks);
 
     return EXIT_SUCCESS;
 }

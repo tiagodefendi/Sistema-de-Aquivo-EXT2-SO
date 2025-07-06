@@ -1,10 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <sys/types.h>
-#include <unistd.h>
 
 #include "utils.h"
 
@@ -19,40 +15,46 @@
  */
 ext2_fs_t *fs_open(char *img_path)
 {
-    // Abre a imagem do sistema de arquivos para leitura e escrita
-    int fd = open(img_path, O_RDWR);
-    if (fd < 0)
+    // Abre o arquivo da imagem para leitura e escrita binária
+    FILE *fp = fopen(img_path, "rb+");
+    if (!fp)
         return NULL;
 
-    // Aloca e inicializa a estrutura do sistema de arquivos
     ext2_fs_t *fs = calloc(1, sizeof(ext2_fs_t));
     if (!fs)
     {
-        close(fd);
+        fclose(fp);
         return NULL;
     }
-    fs->fd = fd;
 
-    // Lê o superbloco da imagem
-    ssize_t sb_read = pread(fd, &fs->sb, sizeof(fs->sb), EXT2_SUPER_OFFSET);
+    // Lê o superbloco a partir do offset 1024 bytes
+    if (fseek(fp, EXT2_SUPER_OFFSET, SEEK_SET) != 0)
+    {
+        free(fs);
+        fclose(fp);
+        return NULL;
+    }
+    size_t sb_read = fread(&fs->sb, 1, sizeof(fs->sb), fp);
     if (sb_read != sizeof(fs->sb))
     {
         free(fs);
-        close(fd);
+        fclose(fp);
         return NULL;
     }
 
-    // Verifica a assinatura mágica do EXT2
+    // Verifica assinatura mágica
     if (fs->sb.s_magic != EXT2_SUPER_MAGIC)
     {
         free(fs);
-        close(fd);
-        errno = EINVAL;
+        fclose(fp);
         return NULL;
     }
 
-    // Calcula o número de grupos de blocos
+    // Calcula número de grupos de blocos
     fs->groups_count = (fs->sb.s_blocks_count + fs->sb.s_blocks_per_group - 1) / fs->sb.s_blocks_per_group;
+
+    // Salva descritor de arquivo
+    fs->fd = fileno(fp);
 
     return fs;
 }
@@ -204,7 +206,6 @@ int inode_loc(ext2_fs_t *fs, uint32_t ino, struct ext2_group_desc *gd_out, off_t
 {
     if (ino == 0)
     {
-        errno = EINVAL;
         return -1;
     }
 
@@ -339,7 +340,6 @@ int fs_alloc_inode(ext2_fs_t *fs, uint16_t mode, uint32_t *out_ino)
             }
         }
     }
-    errno = ENOSPC;
     return -1;
 }
 
@@ -373,7 +373,6 @@ int fs_free_inode(ext2_fs_t *fs, uint32_t ino)
     // Verifica se o inode já está livre
     if (!(bitmap[BIT_BYTE(index_in_group)] & BIT_MASK(index_in_group)))
     {
-        errno = EINVAL;
         return -1;
     }
 
@@ -474,7 +473,6 @@ int fs_alloc_block(ext2_fs_t *fs, uint32_t *out_block)
             }
         }
     }
-    errno = ENOSPC;
     return -1;
 }
 
@@ -507,7 +505,6 @@ int fs_free_block(ext2_fs_t *fs, uint32_t block)
     // Verifica se o bloco já está livre
     if (!(bitmap[BIT_BYTE(index_in_group)] & BIT_MASK(index_in_group)))
     {
-        errno = EINVAL;
         return -1;
     }
 
@@ -531,7 +528,7 @@ int fs_free_block(ext2_fs_t *fs, uint32_t block)
  *
  * @param fs    Ponteiro para a estrutura do sistema de arquivos.
  * @param inode Ponteiro para o inode cujos blocos serão liberados.
- * 
+ *
  * @return 0 em caso de sucesso, -1 em caso de erro.
  */
 int free_inode_blocks(ext2_fs_t *fs, struct ext2_inode *inode)
@@ -578,7 +575,6 @@ int fs_iterate_dir(ext2_fs_t *fs, struct ext2_inode *dir_inode, dir_iter_cb cb, 
 {
     if (!ext2_is_dir(dir_inode))
     {
-        errno = ENOTDIR;
         return -1;
     }
 
@@ -668,7 +664,6 @@ int fs_find_in_dir(ext2_fs_t *fs, struct ext2_inode *dir_inode, char *name, uint
         return -1;
     if (ctx.ino == 0)
     {
-        errno = ENOENT;
         return -1;
     }
     *out_ino = ctx.ino; // Armazena o inode encontrado
@@ -705,7 +700,6 @@ int fs_path_resolve(ext2_fs_t *fs, char *path, uint32_t *ino)
 {
     if (!path || !*path)
     {
-        errno = EINVAL;
         return -1;
     }
 
@@ -738,7 +732,6 @@ int fs_path_resolve(ext2_fs_t *fs, char *path, uint32_t *ino)
         if (!ext2_is_dir(&dir_inode)) // Verifica se o inode atual é um diretório
         {
             free(path_copy);
-            errno = ENOTDIR;
             return -1;
         }
 
@@ -925,7 +918,6 @@ int name_exists(ext2_fs_t *fs, struct ext2_inode *dir_inode, char *name)
 {
     if (!ext2_is_dir(dir_inode)) // Verifica se o inode é um diretório
     {
-        errno = ENOTDIR;
         return -1;
     }
 

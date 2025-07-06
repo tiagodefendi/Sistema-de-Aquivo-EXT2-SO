@@ -54,10 +54,10 @@ Um guia dinâmico para verificar se todos os comandos implementados para o siste
 - ### cp
 
   - [x] `cp <filename> <dir_path_host>` ✔️
-  - [x] `cp <file_path_absolute> <dir_path_host>` - diretório não encontrado ❌
+  - [x] `cp <file_path_absolute> <dir_path_host>` ✔️
   - [x] `cp <dir> <x>` - arquivo não encontrado ❌
-  - [x] `cp <dir_path_absolute>` - arquivo não encontrado ❌
   - [x] `cp` - sintaxe inválida ❌
+  - [x] `cp <x>` - sintaxe inválida ❌
   - [x] `cp <x> <y>` - sintaxe inválida ❌
   - [x] `cp <not_exist> <x>` - arquivo não encontrado ❌
 
@@ -89,13 +89,13 @@ Um guia dinâmico para verificar se todos os comandos implementados para o siste
 
 - ### mv
 
-  - [x] `mv <file>` - diretório não encontrado ❌
-  - [x] `mv <file_absolute>` - diretório não encontrado ❌
-  - [x] `mv <path>` ✔️
-  - [x] `mv <path_absolute>` ✔️
+  - [x] `mv <filename> <dir_path_host>` ✔️
+  - [x] `mv <file_path_absolute> <dir_path_host>` ✔️
+  - [x] `mv <dir> <x>` - arquivo não encontrado ❌
   - [x] `mv` - sintaxe inválida ❌
+  - [x] `mv <x>` - sintaxe inválida ❌
   - [x] `mv <x> <y>` - sintaxe inválida ❌
-  - [x] `mv <not_exist>` - diretório não encontrado ❌
+  - [x] `mv <not_exist> <x>` - arquivo não encontrado ❌
 
 - ### print
 

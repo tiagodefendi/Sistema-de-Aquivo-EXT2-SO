@@ -180,7 +180,7 @@ int copy_ext2_to_host(ext2_fs_t *fs, uint32_t ino, const char *dst)
  *
  * @return Retorna 0 se o caminho foi resolvido com sucesso, ou 1 se houve erro.
  */
-int resolve_image_path(ext2_fs_t *fs, uint32_t cwd, const char *arg, char **abs_out, uint32_t *ino_out)
+static int resolve_image_path(ext2_fs_t *fs, uint32_t cwd, char *arg, char **abs_out, uint32_t *ino_out)
 {
     // Declara um ponteiro para armazenar o caminho absoluto
     char *abs_path;
@@ -281,6 +281,15 @@ int cmd_cp(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
 
     char dst_full[4096];                        // Caminho completo do destino
     make_dst_path(dst_full, argv[2], src_path); // Cria o caminho completo do destino
+
+    FILE *dst_file = fopen(dst_full, "rb");
+    if (dst_file != NULL) // Verifica se o arquivo de destino já existe
+    {
+        fclose(dst_file);
+        print_error(ERROR_FILE_OR_DIRECTORY_ALREADY_EXISTS);
+        free(src_path);
+        return EXIT_FAILURE;
+    }
 
     int res = copy_ext2_to_host(fs, src_ino, dst_full); // Copia o arquivo do EXT2 para o sistema real
 

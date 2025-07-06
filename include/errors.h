@@ -17,6 +17,14 @@
 #define RED_COLOR "\033[31m"
 #define RESET_COLOR "\033[0m"
 
+/**
+ * @brief   Imprime uma mensagem de erro com base no código de erro fornecido.
+ *
+ * Esta função imprime uma mensagem de erro correspondente ao código de erro
+ * passado como argumento. As mensagens são exibidas em vermelho.
+ *
+ * @param error Código de erro a ser impresso.
+ */
 static inline void print_error(int error)
 {
     switch (error)
@@ -51,6 +59,18 @@ static inline void print_error(int error)
         fprintf(stderr, RED_COLOR "erro inesperado.\n" RESET_COLOR);
         break;
     }
+}
+
+/**
+ * @brief   Imprime uma mensagem de erro personalizada.
+ *
+ * Esta função imprime uma mensagem de erro personalizada em vermelho.
+ *
+ * @param message Mensagem de erro a ser impressa.
+ */
+static inline void print_error_with_message(char *message)
+{
+    fprintf(stderr, RED_COLOR "%s\n" RESET_COLOR, message);
 }
 
 #endif /* ERRORS_H */

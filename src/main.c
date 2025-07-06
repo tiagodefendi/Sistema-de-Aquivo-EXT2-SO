@@ -1,9 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
 #include <limits.h>
-#include <unistd.h>
 
 #include "commands.h"
 #include "errors.h"
@@ -76,16 +74,6 @@ int tokenize(char *line, char **argv)
     return argc;
 }
 
-/**
- * @brief   Imprime uma mensagem de erro genérica.
- * @param   msg Mensagem a ser exibida.
- * @return  Nenhum valor é retornado.
- */
-void print_errno(const char *msg)
-{
-    fprintf(stderr, "%s\n", strerror(errno));
-}
-
 // Tabela de comandos
 struct command_entry cmd_table[] = {
     {"info", cmd_info, "Exibe informações do disco e do sistema de arquivos."},
@@ -139,7 +127,7 @@ int main(int argc, char **argv)
     ext2_fs_t *fs = fs_open(argv[1]); // Abre a imagem do sistema de arquivos
     if (!fs)
     {
-        print_errno("Erro ao abrir a imagem do sistema de arquivos.");
+        print_error_with_message("Erro ao abrir a imagem do sistema de arquivos.");
         return EXIT_FAILURE;
     }
 

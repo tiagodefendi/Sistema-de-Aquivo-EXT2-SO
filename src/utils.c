@@ -488,48 +488,46 @@ int fs_alloc_block(ext2_fs_t *fs, uint32_t *out_block)
  */
 int fs_free_block(ext2_fs_t *fs, uint32_t block)
 {
-    if (block < fs->sb.s_first_data_block)
+    if (block < fs->sb.s_first_data_block) // Verifica se o bloco é válido
     {
         return -1;
     }
-    uint32_t rel = block - fs->sb.s_first_data_block;
-    uint32_t group = rel / fs->sb.s_blocks_per_group;
-    uint32_t idx = rel % fs->sb.s_blocks_per_group;
+    uint32_t rel = block - fs->sb.s_first_data_block; // Calcula o número relativo do bloco
+    uint32_t group = rel / fs->sb.s_blocks_per_group; // Determina o grupo do bloco
+    uint32_t idx = rel % fs->sb.s_blocks_per_group;   // Calcula o índice do bloco dentro do grupo
 
     struct ext2_group_desc gd;
-    if (fs_read_group_desc(fs, group, &gd) < 0)
+    if (fs_read_group_desc(fs, group, &gd) < 0) // Lê o descritor de grupo
     {
         return -1;
     }
 
     uint8_t bitmap[EXT2_BLOCK_SIZE];
-    if (fs_read_block(fs, gd.bg_block_bitmap, bitmap) < 0)
+    if (fs_read_block(fs, gd.bg_block_bitmap, bitmap) < 0) // Lê o bitmap de blocos do grupo
     {
         return -1;
     }
 
-    int bit = bitmap[BIT_BYTE(idx)] & BIT_MASK(idx);
-              bitmap[BIT_BYTE(idx)], BIT_MASK(idx), !!bit);
+    int bit = bitmap[BIT_BYTE(idx)] & BIT_MASK(idx); // Verifica se o bloco está livre
 
     if (!bit)
     {
         return -1;
     }
 
-    /* marca livre */
-    bitmap[BIT_BYTE(idx)] &= ~BIT_MASK(idx);
-    gd.bg_free_blocks_count++;
-    fs->sb.s_free_blocks_count++;
-    if (fs_write_block(fs, gd.bg_block_bitmap, bitmap) < 0)
+    bitmap[BIT_BYTE(idx)] &= ~BIT_MASK(idx);                // Marca o bloco como livre
+    gd.bg_free_blocks_count++;                              // Incrementa o contador de blocos livres
+    fs->sb.s_free_blocks_count++;                           // Incrementa o contador de blocos livres no superbloco
+    if (fs_write_block(fs, gd.bg_block_bitmap, bitmap) < 0) // Escreve o bitmap atualizado no disco
     {
         return -1;
     }
-    if (fs_write_group_desc(fs, group, &gd) < 0)
+    if (fs_write_group_desc(fs, group, &gd) < 0) // Atualiza o descritor de grupo no disco
     {
         return -1;
     }
 
-    if (fs_sync_super(fs) < 0)
+    if (fs_sync_super(fs) < 0) // Sincroniza o superbloco
     {
         return -1;
     }
@@ -559,11 +557,6 @@ int free_inode_blocks(ext2_fs_t *fs, struct ext2_inode *inode)
             }
         }
     }
-    // Indiretos simples, duplo e triplo
-    uint32_t ib;
-    ib = inode->i_block[12];
-    ib = inode->i_block[13];
-    ib = inode->i_block[14];
 
     // Use existing free_indirect_chain if available
     extern int free_indirect_chain(ext2_fs_t *, uint32_t, int);

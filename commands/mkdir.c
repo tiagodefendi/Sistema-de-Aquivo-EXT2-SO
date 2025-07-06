@@ -144,7 +144,7 @@ int cmd_mkdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     if (fs_path_resolve(fs, novo_caminho, &inode_existente) == 0) // Verifica se já existe um arquivo ou diretório com esse nome
     {
         free(novo_caminho);
-        print_error(ERROR_DIRECTORY_ALREADY_EXISTS);
+        print_error(ERROR_FILE_OR_DIRECTORY_ALREADY_EXISTS);
         return EXIT_FAILURE;
     }
 

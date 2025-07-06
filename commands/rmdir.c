@@ -36,14 +36,13 @@ static int is_directory_empty(ext2_fs_t *fs, struct ext2_inode *dir_inode)
 
             if (e->inode != 0 && !(e->name_len == 1 && e->name[0] == '.') && !(e->name_len == 2 && e->name[0] == '.' && e->name[1] == '.'))
             {
-                return EXIT_SUCCESS // encontrou algo além de . e ..
+                return EXIT_SUCCESS; // encontrou algo além de . e ..
             }
             off += e->rec_len;
         }
     }
     // Se não encontrou nada além de . e ..
-    print_error(ERROR_UNKNOWN);
-    return EXIT_SUCCESS;
+    return EXIT_FAILURE;
 }
 
 /**
@@ -80,9 +79,7 @@ static int dir_remove_entry_rm(ext2_fs_t *fs, struct ext2_inode *parent_inode, u
             if (e->inode == target_ino)
             {
                 if (prev)
-                {
                     prev->rec_len += e->rec_len;
-                }
                 else
                 {
                     e->inode = 0;
@@ -131,7 +128,7 @@ int cmd_rmdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     if (fs_path_resolve(fs, full_path, &dir_ino) < 0)
     {
         free(full_path);
-        print_error(ERROR_UNKNOWN);
+        print_error(ERROR_DIRECTORY_NOT_FOUND);
         return EXIT_FAILURE;
     }
 

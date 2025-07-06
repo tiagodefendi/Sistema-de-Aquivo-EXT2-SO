@@ -39,7 +39,7 @@ int cmd_touch(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     if (fs_path_resolve(fs, full_path, &existing_inode) == 0)
     {
         free(full_path);
-        print_error(ERROR_UNKNOWN);
+        print_error(ERROR_FILE_OR_DIRECTORY_ALREADY_EXISTS);
         return EXIT_FAILURE;
     }
 

@@ -116,7 +116,7 @@ void print_inode(ext2_fs_t *fs, uint32_t ino)
     struct ext2_inode in;
     if (fs_read_inode(fs, ino, &in) < 0)
     {
-        perror("inode");
+        print_error(ERROR_INVALID_SYNTAX);
         return;
     }
     printf("file format and access rights..: 0x%x\n", in.i_mode);
@@ -132,7 +132,7 @@ void print_inode(ext2_fs_t *fs, uint32_t ino)
     printf("ext2 flags.....................: %u\n", in.i_flags);
     printf("reserved (Linux)...............: %u\n", in.i_osd1);
     for (int i = 0; i < 15; ++i)
-        printf("pointer[%2d].....................: %u\n", i, in.i_block[i]);
+        printf("pointer[%2d]....................: %u\n", i, in.i_block[i]);
     printf("file version (nfs).............: %u\n", in.i_generation);
     printf("block number ext. attributes...: %u\n", in.i_file_acl);
     printf("higher 32-bit file size........: %u\n", in.i_dir_acl);

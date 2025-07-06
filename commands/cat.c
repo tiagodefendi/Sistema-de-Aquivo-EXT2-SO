@@ -58,8 +58,11 @@ int dump_file(ext2_fs_t *fs, const struct ext2_inode *in)
     for (int i = 0; i < 12 && bytes_left > 0; ++i)
     {
         uint32_t to_read = (bytes_left < EXT2_BLOCK_SIZE) ? bytes_left : EXT2_BLOCK_SIZE; // Tamanho a ser lido
-        if (dump_blk(fs, in->i_block[i], to_read))                                        // Lê o bloco do sistema de arquivos
+        if (dump_blk(fs, in->i_block[i], to_read))
+        {
+            print_error(ERROR_UNKNOWN);
             return EXIT_FAILURE;
+        } // Lê o bloco do sistema de arquivos
         bytes_left -= to_read;
     }
 
@@ -99,14 +102,20 @@ int dump_file(ext2_fs_t *fs, const struct ext2_inode *in)
             if (!dbl_indirect[i]) // Verifica se o ponteiro é nulo
                 continue;
             if (fs_read_block(fs, dbl_indirect[i], buf2) < 0) // Lê o bloco indireto duplo
+            {
+                print_error(ERROR_UNKNOWN);
                 return EXIT_FAILURE;
+            }
             uint32_t *indirect = (uint32_t *)buf2;
             for (uint32_t j = 0; j < PTRS_PER_BLOCK && bytes_left > 0; ++j) // Lê os blocos indiretos simples dentro do indireto duplo
             {
                 uint32_t to_read = (bytes_left > EXT2_BLOCK_SIZE) ? EXT2_BLOCK_SIZE : bytes_left; // Tamanho a ser lido
                 // Lê o bloco indireto simples
                 if (dump_blk(fs, indirect[j], to_read) < 0)
+                {
+                    print_error(ERROR_UNKNOWN);
                     return EXIT_FAILURE;
+                }
                 bytes_left -= to_read; // Atualiza o número de bytes restantes
             }
         }
@@ -147,7 +156,7 @@ int cmd_cat(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     if (fs_path_resolve(fs, abs, &ino) < 0) // Resolve o inode do arquivo
     {
         free(abs);
-        print_error(ERROR_UNKNOWN);
+        print_error(ERROR_FILE_NOT_FOUND);
         return EXIT_FAILURE;
     }
 

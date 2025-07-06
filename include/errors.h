@@ -9,10 +9,9 @@
 #define ERROR_FILE_OR_DIRECTORY_NOT_FOUND 3
 #define ERROR_COMMAND_NOT_FOUND 4
 #define ERROR_INVALID_SYNTAX 5
-#define ERROR_FILE_ALREADY_EXISTS 6
-#define ERROR_DIRECTORY_ALREADY_EXISTS 7
-#define ERROR_DIRECTORY_NOT_EMPTY 8
-#define ERROR_DEST_DIR_NOT_EXISTS 9
+#define ERROR_FILE_OR_DIRECTORY_ALREADY_EXISTS 6
+#define ERROR_DIRECTORY_NOT_EMPTY 7
+#define ERROR_DEST_DIR_NOT_EXISTS 8
 #define ERROR_UNKNOWN 10
 
 #define RED_COLOR "\033[31m"
@@ -39,8 +38,8 @@ static inline void print_error(int error)
     case ERROR_INVALID_SYNTAX:
         fprintf(stderr, RED_COLOR "sintaxe inválida.\n" RESET_COLOR);
         break;
-    case ERROR_FILE_ALREADY_EXISTS:
-        fprintf(stderr, RED_COLOR "arquivo já existe.\n" RESET_COLOR);
+    case ERROR_FILE_OR_DIRECTORY_ALREADY_EXISTS:
+        fprintf(stderr, RED_COLOR "arquivo ou diretório já existe.\n" RESET_COLOR);
         break;
     case ERROR_DIRECTORY_NOT_EMPTY:
         fprintf(stderr, RED_COLOR "diretório não está vazio.\n" RESET_COLOR);

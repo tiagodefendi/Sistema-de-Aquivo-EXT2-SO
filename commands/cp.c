@@ -266,7 +266,7 @@ int cmd_cp(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
 
     if (argv[2][0] != '/') // Destino deve ser caminho absoluto do sistema real
     {
-        print_error(ERROR_INVALID_SYNTAX);
+        print_error(ERROR_DEST_DIR_NOT_EXISTS);
         return EXIT_FAILURE;
     }
 

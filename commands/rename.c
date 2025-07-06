@@ -155,7 +155,7 @@ int cmd_rename(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         free(old_full_path);
         free(dup_path);
         free(parent_path);
-        print_error(ERROR_FILE_ALREADY_EXISTS);
+        print_error(ERROR_FILE_OR_DIRECTORY_ALREADY_EXISTS);
         return EXIT_FAILURE;
     }
 

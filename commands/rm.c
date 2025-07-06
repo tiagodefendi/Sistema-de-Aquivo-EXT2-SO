@@ -251,7 +251,7 @@ int cmd_rm(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
     if (fs_path_resolve(fs, full_path, &file_ino) < 0) // Resolve o inode do arquivo
     {
         free(full_path);
-        print_error(ERROR_UNKNOWN);
+        print_error(ERROR_FILE_NOT_FOUND);
         return EXIT_FAILURE;
     }
 

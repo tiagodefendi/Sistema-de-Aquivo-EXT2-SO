@@ -16,32 +16,38 @@ static int is_directory_empty(ext2_fs_t *fs, struct ext2_inode *dir_inode)
 {
     uint8_t buf[EXT2_BLOCK_SIZE];
 
+    // Percorre os blocos diretos (0 a 11) do inode do diretório
     for (int i = 0; i < 12; ++i)
     {
         uint32_t blk = dir_inode->i_block[i];
-        if (!blk)
-            continue;
+        if (!blk) continue; // Pula blocos não alocados
+
+        // Lê o bloco do diretório
         if (fs_read_block(fs, blk, buf) < 0)
         {
             print_error(ERROR_UNKNOWN);
             return EXIT_FAILURE;
         }
 
+        // Percorre as entradas de diretório dentro do bloco
         uint32_t off = 0;
         while (off < EXT2_BLOCK_SIZE)
         {
             struct ext2_dir_entry *e = (void *)(buf + off);
-            if (e->rec_len == 0)
-                break;
+            if (e->rec_len == 0) break; // Fim da lista de entradas
 
-            if (e->inode != 0 && !(e->name_len == 1 && e->name[0] == '.') && !(e->name_len == 2 && e->name[0] == '.' && e->name[1] == '.'))
+            // Verifica se é uma entrada válida e diferente de "." ou ".."
+            if (e->inode != 0 && !(e->name_len == 1 && e->name[0] == '.') &&
+                !(e->name_len == 2 && e->name[0] == '.' && e->name[1] == '.'))
             {
-                return EXIT_SUCCESS; // encontrou algo além de . e ..
+                return EXIT_SUCCESS; // Diretório não está vazio
             }
-            off += e->rec_len;
+
+            off += e->rec_len; // Avança para a próxima entrada
         }
     }
-    // Se não encontrou nada além de . e ..
+
+    // Se não encontrou nada além de "." e "..", o diretório está vazio
     return EXIT_FAILURE;
 }
 
@@ -57,11 +63,12 @@ static int dir_remove_entry_rm(ext2_fs_t *fs, struct ext2_inode *parent_inode, u
 {
     uint8_t buf[EXT2_BLOCK_SIZE];
 
+    // Percorre os blocos diretos do diretório pai
     for (int i = 0; i < 12; ++i)
     {
         uint32_t blk = parent_inode->i_block[i];
-        if (!blk)
-            continue;
+        if (!blk) continue;
+
         if (fs_read_block(fs, blk, buf) < 0)
         {
             print_error(ERROR_UNKNOWN);
@@ -69,22 +76,25 @@ static int dir_remove_entry_rm(ext2_fs_t *fs, struct ext2_inode *parent_inode, u
         }
 
         uint32_t off = 0;
-        struct ext2_dir_entry *prev = NULL;
+        struct ext2_dir_entry *prev = NULL; // Mantém ponteiro para a entrada anterior
         while (off < EXT2_BLOCK_SIZE)
         {
             struct ext2_dir_entry *e = (void *)(buf + off);
-            if (e->rec_len == 0)
-                break;
+            if (e->rec_len == 0) break;
 
             if (e->inode == target_ino)
             {
                 if (prev)
+                    // Junta a entrada removida ao espaço da anterior
                     prev->rec_len += e->rec_len;
                 else
                 {
+                    // Se for a primeira entrada, apenas zera
                     e->inode = 0;
                     e->rec_len = EXT2_BLOCK_SIZE;
                 }
+
+                // Escreve as mudanças no disco
                 if (fs_write_block(fs, blk, buf) < 0)
                 {
                     print_error(ERROR_UNKNOWN);
@@ -92,10 +102,13 @@ static int dir_remove_entry_rm(ext2_fs_t *fs, struct ext2_inode *parent_inode, u
                 }
                 return EXIT_SUCCESS;
             }
+
             prev = e;
             off += e->rec_len;
         }
     }
+
+    // Entrada com o inode alvo não foi encontrada
     print_error(ERROR_UNKNOWN);
     return EXIT_FAILURE;
 }
@@ -111,12 +124,14 @@ static int dir_remove_entry_rm(ext2_fs_t *fs, struct ext2_inode *parent_inode, u
  */
 int cmd_rmdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
 {
+    // Verifica número de argumentos
     if (argc != 2)
     {
         print_error(ERROR_INVALID_SYNTAX);
         return EXIT_FAILURE;
     }
 
+    // Concatena caminho completo com base no diretório atual
     char *full_path = fs_join_path(fs, *cwd, argv[1]);
     if (!full_path)
     {
@@ -124,6 +139,7 @@ int cmd_rmdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         return EXIT_FAILURE;
     }
 
+    // Resolve o caminho para obter o número do inode
     uint32_t dir_ino;
     if (fs_path_resolve(fs, full_path, &dir_ino) < 0)
     {
@@ -132,6 +148,7 @@ int cmd_rmdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         return EXIT_FAILURE;
     }
 
+    // Lê o inode do diretório
     struct ext2_inode dir_inode;
     if (fs_read_inode(fs, dir_ino, &dir_inode) < 0)
     {
@@ -140,6 +157,7 @@ int cmd_rmdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         return EXIT_FAILURE;
     }
 
+    // Verifica se realmente é um diretório
     if (!ext2_is_dir(&dir_inode))
     {
         free(full_path);
@@ -147,6 +165,7 @@ int cmd_rmdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         return EXIT_FAILURE;
     }
 
+    // Verifica se o diretório está vazio
     int empty = is_directory_empty(fs, &dir_inode);
     if (empty < 0)
     {
@@ -161,13 +180,15 @@ int cmd_rmdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         return EXIT_FAILURE;
     }
 
+    // Extrai o caminho do diretório pai
     char *parent_path = strdup(full_path);
     char *slash = strrchr(parent_path, '/');
     if (slash && slash != parent_path)
-        *slash = '\0';
+        *slash = '\0'; // Remove o nome do diretório final
     else
-        strcpy(parent_path, "/");
+        strcpy(parent_path, "/"); // Caso seja a raiz
 
+    // Resolve o caminho do diretório pai
     uint32_t parent_ino;
     if (fs_path_resolve(fs, parent_path, &parent_ino) < 0)
     {
@@ -177,6 +198,7 @@ int cmd_rmdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         return EXIT_FAILURE;
     }
 
+    // Lê o inode do diretório pai
     struct ext2_inode parent_inode;
     if (fs_read_inode(fs, parent_ino, &parent_inode) < 0)
     {
@@ -186,6 +208,7 @@ int cmd_rmdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         return EXIT_FAILURE;
     }
 
+    // Remove a entrada do diretório no pai
     if (dir_remove_entry_rm(fs, &parent_inode, dir_ino))
     {
         free(full_path);
@@ -194,7 +217,7 @@ int cmd_rmdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         return EXIT_FAILURE;
     }
 
-    /* Chamada corrigida para free_inode_blocks */
+    // Libera blocos de dados associados ao diretório
     if (free_inode_blocks(fs, &dir_inode) < 0)
     {
         free(full_path);
@@ -203,6 +226,7 @@ int cmd_rmdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         return EXIT_FAILURE;
     }
 
+    // Libera o próprio inode
     if (fs_free_inode(fs, dir_ino) < 0)
     {
         free(full_path);
@@ -211,7 +235,8 @@ int cmd_rmdir(int argc, char **argv, ext2_fs_t *fs, uint32_t *cwd)
         return EXIT_FAILURE;
     }
 
+    // Libera memória alocada para caminhos
     free(full_path);
     free(parent_path);
-    return EXIT_SUCCESS;
+    return EXIT_SUCCESS; // Diretório removido com sucesso
 }

@@ -1,26 +1,43 @@
-CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -g
-INCLUDES = -I. -Icommands
+CC      := 	gcc
+CFLAGS  := 	-Wall -g -Iinclude
 
-SRCS = ext2shell.c ext2_utils.c \
-       commands/info.c commands/ls.c \
-       commands/pwd.c commands/cd.c \
-       commands/cat.c commands/attr.c \
-	   commands/touch.c commands/mkdir.c \
-	   commands/rm.c commands/rmdir.c \
-	   commands/rename.c commands/cp.c \
-	   commands/mv.c
+SRC_DIR := 	src
+CMD_DIR := 	commands
+OBJ_DIR := 	.exec
 
-OBJS = $(SRCS:.c=.o)
-TARGET = ext2shell
+SRCS    :=	$(SRC_DIR)/main.c $(SRC_DIR)/utils.c \
+			$(CMD_DIR)/info.c $(CMD_DIR)/ls.c \
+			$(CMD_DIR)/cat.c $(CMD_DIR)/pwd.c \
+			$(CMD_DIR)/attr.c $(CMD_DIR)/cd.c \
+			$(CMD_DIR)/touch.c $(CMD_DIR)/mkdir.c \
+			$(CMD_DIR)/rm.c $(CMD_DIR)/rmdir.c \
+			$(CMD_DIR)/rename.c $(CMD_DIR)/cp.c \
+			$(CMD_DIR)/mv.c \
+			$(CMD_DIR)/print.c
+
+OBJS    := 	$(patsubst %.c,$(OBJ_DIR)/%.o,$(notdir $(SRCS)))
+
+TARGET  := 	ext2shell
+IMG     := 	myext2image.img
+
+.PHONY: all clean shell
 
 all: $(TARGET)
 
-$(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $^
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
 
-%.o: %.c
-	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+$(OBJ_DIR)/%.o: $(CMD_DIR)/%.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJ_DIR):
+	mkdir -p $(OBJ_DIR)
+
+$(TARGET): $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJS)
+
+shell: all
+	./$(TARGET) $(IMG)
 
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -rf $(OBJ_DIR) $(TARGET)

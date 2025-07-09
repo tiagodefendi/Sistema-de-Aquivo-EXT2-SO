@@ -1,6 +1,15 @@
 {
     "files.associations": {
-        "ext2_utils.h": "c",
-        "rm.h": "c"
-    }
+        "commands.h": "c",
+        "utils.h": "c",
+        "ext2.h": "c",
+        "errors.h": "c",
+        "stdio.h": "c",
+        "stdint.h": "c",
+        "stdlib.h": "c",
+        "string.h": "c",
+        "libgen.h": "c",
+        "unistd.h": "c",
+    },
+    "C_Cpp.errorSquiggles": "disabled"
 }
